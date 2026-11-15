@@ -79,6 +79,12 @@ git commit -m "chore: initialize repository and add gitignore"
 
 # 3. Created documentation feature branch
 git checkout -b docs/prd-and-architecture
+
+# 4. Connected remote origin and pushed branches
+git remote add origin https://github.com/Aaditya514/broski.git
+git push -u origin main
+git push origin docs/prd-and-architecture
+# -> Successfully linked and synced with https://github.com/Aaditya514/broski
 ```
 
 ---
