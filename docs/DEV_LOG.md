@@ -105,3 +105,82 @@ git push origin docs/prd-and-architecture
 * **Git Status**: Working tree completely clean; branch `main` is up-to-date with `origin/main`.
 * **GitHub Link**: [https://github.com/Aaditya514/broski](https://github.com/Aaditya514/broski)
 * **Status**: Sprint 0 complete. Ready to kick off Sprint 1 on Day 2!
+
+---
+
+## 📅 Day 2: 2026-11-17 — Sprint 1 (Day 1 of 5): Environment & Packaging
+
+### 🎯 Daily Objective
+Initiate Sprint 1 (Foundation & Core Infrastructure) on feature branch `feat/sprint-1-foundation`. Bootstrap the isolated Python 3.12 virtual environment, create modern standard `pyproject.toml` packaging, and install foundational core libraries.
+
+---
+
+### 🛠️ 1. What We Built Today
+1. **Feature Branching**:
+   * Created and switched to `feat/sprint-1-foundation` from `main`.
+2. **Virtual Environment Setup (`.venv`)**:
+   * Initialized dedicated Python 3.12 virtual environment using `py -3.12 -m venv .venv`.
+   * Verified runtime: Python 3.12.3 (64-bit).
+3. **Modern Packaging Architecture (`pyproject.toml`)**:
+   * Adopted PEP 517, PEP 518, and PEP 621 packaging standards.
+   * Configured core dependencies (`pydantic`, `pydantic-settings`, `python-dotenv`, `aiosqlite`).
+   * Configured modular optional extras:
+     * `broski[audio]`: `sounddevice`, `numpy`, `onnxruntime`, `openwakeword`, `faster-whisper`, `piper-tts`.
+     * `broski[brain]`: `google-genai`.
+     * `broski[system]`: `pywin32`, `pywinauto`.
+     * `broski[integrations]`: `httpx`, `playwright`.
+     * `broski[ui]`: `PySide6`.
+     * `broski[dev]`: `pytest`, `pytest-asyncio`, `ruff`.
+   * Defined CLI entry point `broski = "broski.main:main"` and tool configurations for `pytest` and `ruff`.
+4. **Source Skeleton (`src/broski/__init__.py`)**:
+   * Created initial root package structure and version definition (`0.1.0`).
+5. **Dependency Installation**:
+   * Upgraded `pip` and performed editable install: `pip install -e ".[dev]"`.
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. Virtual Environments on Windows: How They Actually Work
+* **The Magic**: When you run `py -3.12 -m venv .venv`, Python doesn't make a copy of the entire Windows operating system or all standard libraries.
+* Instead, it creates a lightweight directory structure with its own isolated `Scripts\python.exe` and `Lib\site-packages\`.
+* When you run `.\.venv\Scripts\python.exe`, it reads `pyvenv.cfg`, points to the Python 3.12 base installation, and restricts package lookups exclusively to `.\.venv\Lib\site-packages\`.
+* **Why this matters for broski**: Your computer has Python 3.13 globally. Global installs would clash with audio and ML packages. By locking our `.venv` to Python 3.12, every future command is 100% deterministic, protected, and reproducible.
+
+#### B. `pyproject.toml` vs. Legacy `requirements.txt` / `setup.py`
+* **The Problem with legacy `requirements.txt`**: A flat text file doesn't distinguish between *direct* project dependencies and *transitive* dependencies. It also cannot configure test runners or linters.
+* **The Power of `pyproject.toml`**:
+  * Unified standard (PEP 621) supported by all modern Python packaging tools.
+  * Modular dependencies: allows users or production dockers to install only what they need (e.g., `pip install -e ".[audio]"` vs `pip install -e ".[dev]"`).
+  * Centralizes tool configuration: both `pytest` and `ruff` read their settings directly from `pyproject.toml`.
+
+#### C. What is an Editable Install (`pip install -e .`)?
+* Normally, `pip install` copies your Python files into `site-packages`. If you modify a file in `src/`, your changes don't take effect until you reinstall.
+* **Editable mode (`-e`)**: Tells Python to insert a special `.pth` link in `site-packages` pointing straight back to our local `src/` folder.
+* **Result**: Any change we make to `src/broski/` is immediately active in our virtual environment without running any rebuild commands!
+
+---
+
+### 💻 3. Commands Executed & Outputs
+```powershell
+# 1. Created and switched to feature branch
+git checkout -b feat/sprint-1-foundation
+
+# 2. Created isolated Python 3.12 venv
+py -3.12 -m venv .venv
+
+# 3. Verified Python version inside venv
+.\.venv\Scripts\python.exe --version
+# -> Python 3.12.3
+
+# 4. Upgraded pip and installed core + dev dependencies in editable mode
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\pip install -e ".[dev]"
+```
+
+---
+
+### 🚀 4. Plan for Day 2 of Sprint 1
+* Build `src/broski/config.py` using `pydantic-settings`.
+* Create `.env.example` template with Gemini API key, Obsidian port, log levels, and audio configuration.
+* Test type validation and environment variable loading.
