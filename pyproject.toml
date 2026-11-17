@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "broski"
+version = "0.1.0"
+description = "Personal Windows AI Voice Assistant"
+readme = "README.md"
+requires-python = ">=3.11, <3.13"
+license = "MIT"
+authors = [
+    { name = "Aaditya514" },
+    { name = "Lead Software Architect" }
+]
+keywords = ["voice-assistant", "windows", "ai", "gemini", "whisper", "piper"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+# Core foundational dependencies for Sprint 1
+dependencies = [
+    "pydantic>=2.7.0,<3.0.0",
+    "pydantic-settings>=2.2.0,<3.0.0",
+    "python-dotenv>=1.0.1",
+    "aiosqlite>=0.20.0,<1.0.0"
+]
+
+[project.optional-dependencies]
+# Audio sensory stack (Sprint 2 & 3)
+audio = [
+    "sounddevice>=0.5.0",
+    "numpy>=1.26.0,<2.0.0",
+    "onnxruntime>=1.18.0",
+    "openwakeword>=0.6.0",
+    "faster-whisper>=1.0.0",
+    "piper-tts>=1.2.0"
+]
+
+# Cloud intelligence & reasoning (Sprint 4)
+brain = [
+    "google-genai>=0.1.1"
+]
+
+# Windows system automation & text injection (Sprint 4 & 5)
+system = [
+    "pywin32>=306",
+    "pywinauto>=0.6.8"
+]
+
+# Workflow integrations: Chrome & Obsidian (Sprint 5)
+integrations = [
+    "httpx>=0.27.0",
+    "playwright>=1.48.0"
+]
+
+# Desktop HUD and System Tray UI (Sprint 6)
+ui = [
+    "PySide6>=6.7.0"
+]
+
+# Developer tools & test suite
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0"
+]
+
+# All optional dependencies combined
+all = [
+    "broski[audio,brain,system,integrations,ui,dev]"
+]
+
+[project.scripts]
+broski = "broski.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
