@@ -184,3 +184,81 @@ py -3.12 -m venv .venv
 * Build `src/broski/config.py` using `pydantic-settings`.
 * Create `.env.example` template with Gemini API key, Obsidian port, log levels, and audio configuration.
 * Test type validation and environment variable loading.
+
+---
+
+## 📅 Day 3: 2026-11-18 — Sprint 1 (Day 2 of 5): Type-Safe Configuration & Secret Management
+
+### 🎯 Daily Objective
+Implement a robust, production-grade configuration architecture for broski using `pydantic-settings`. Prevent credential leakage using `SecretStr`, provide domain-specific sub-configurations (`AudioConfig`, `BrainConfig`, `ObsidianConfig`, `PathsConfig`, `SecurityConfig`), enforce strict validation rules, and verify with automated unit tests.
+
+---
+
+### 🛠️ 1. What We Built Today
+1. **Environment Configuration Template (`.env.example`)**:
+   * Fully commented configuration template covering all subsystems (Cloud AI, Audio, Wake Word, VAD, Whisper, Piper, Obsidian, Paths, and Security Gating).
+2. **Type-Safe Settings Engine (`src/broski/config.py`)**:
+   * Root `Settings(BaseSettings)` class reading from environment variables and `.env`.
+   * Grouped domain models:
+     * `AudioConfig`: validates 16kHz sample rate, channels, VAD threshold, and limits Whisper CPU worker threads to 2.
+     * `BrainConfig`: protects `gemini_api_key` with `SecretStr`, configures model identifier and temperature.
+     * `ObsidianConfig`: validates TCP port (1–65535) and provides dynamic `base_url`.
+     * `PathsConfig`: resolves `data/broski.db` and auto-creates required storage directories (`ensure_directories()`).
+     * `SecurityConfig`: sets confirmation requirement for critical actions and log levels.
+   * Cached singleton accessor `get_settings()` decorated with `@lru_cache`.
+3. **Automated Unit Test Suite (`tests/unit/test_config.py` & `tests/conftest.py`)**:
+   * `test_default_settings`: Verifies out-of-the-box defaults match architectural specifications.
+   * `test_secret_str_masking`: Asserts API keys are never exposed in logs or `repr()`.
+   * `test_environment_variable_overrides`: Asserts environment variables override defaults.
+   * `test_invalid_sample_rate_validation`: Asserts invalid audio sample rates fail validation immediately.
+   * `test_invalid_port_validation`: Asserts port range violations fail validation.
+   * `test_paths_ensure_directories`: Asserts directory creation works reliably.
+   * `test_get_settings_cached_singleton`: Asserts singleton instance caching.
+4. **Code Quality & Linting**:
+   * Code formatted and validated using `ruff` with modern Python 3.12 syntax (PEP 604 `X | None`).
+   * 100% clean check: 7 unit tests passed in 0.22 seconds.
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. Why `pydantic-settings` instead of `os.getenv()`?
+* **The Primitive Way (`os.getenv`)**: Returns unvalidated raw strings. If someone puts `AUDIO_SAMPLE_RATE=sixteen_thousand` or `OBSIDIAN_PORT=9999999`, the error will occur hours later inside deep audio/network code with confusing stack traces.
+* **The Pydantic Way**: 
+  1. Automatic type casting (turns `"16000"` from `.env` into integer `16000`).
+  2. Range checks (`ge=1, le=65535`).
+  3. "Fail Fast": If configuration is invalid, broski refuses to boot and immediately tells the user exactly which configuration parameter is invalid and why.
+
+#### B. The Zero-Leak Guarantee: `SecretStr`
+* If you log `settings.gemini_api_key` or print it during debugging, Python automatically renders:
+  ```python
+  SecretStr('**********')
+  ```
+* Even if an unhandled exception prints local variables into an error dump, your API key will never be visible in plain text.
+* To explicitly retrieve the secret for network calls: `key = settings.brain.api_key.get_secret_value()`.
+
+#### C. Cached Singleton Pattern (`@lru_cache`)
+* Disk I/O (parsing `.env`) is slow compared to memory lookups.
+* By wrapping `get_settings()` with `@lru_cache(maxsize=1)`, the configuration is parsed exactly once on first call and held in RAM. Any subsequent import across the entire application accesses the in-memory object instantaneously.
+
+---
+
+### 💻 3. Commands Executed & Outputs
+```powershell
+# 1. Ran automated unit tests
+.\.venv\Scripts\pytest -v tests/unit/test_config.py
+# -> 7 passed in 0.22s
+
+# 2. Formatted and linted code with ruff
+.\.venv\Scripts\ruff check --fix .
+.\.venv\Scripts\ruff format .
+# -> All checks passed!
+```
+
+---
+
+### 🚀 4. Plan for Day 3 of Sprint 1
+* **Topic**: **Asynchronous SQLite Engine & Database Schema**
+* Build `src/broski/memory/database.py` using `aiosqlite`.
+* Design relational tables: `memories` (key-value facts), `user_preferences`, and `security_audit_logs`.
+* Write unit tests verifying async database connection lifecycle and schema creation.
