@@ -232,7 +232,7 @@ Implement a robust, production-grade configuration architecture for broski using
 #### B. The Zero-Leak Guarantee: `SecretStr`
 * If you log `settings.gemini_api_key` or print it during debugging, Python automatically renders:
   ```python
-  SecretStr('**********')
+  SecretStr("**********")
   ```
 * Even if an unhandled exception prints local variables into an error dump, your API key will never be visible in plain text.
 * To explicitly retrieve the secret for network calls: `key = settings.brain.api_key.get_secret_value()`.
@@ -257,8 +257,89 @@ Implement a robust, production-grade configuration architecture for broski using
 
 ---
 
-### 🚀 4. Plan for Day 3 of Sprint 1
-* **Topic**: **Asynchronous SQLite Engine & Database Schema**
+### 🚀 4. Plan for Day 3 & 4 of Sprint 1
+* **Topic**: **Asynchronous SQLite Engine & Data Access Object (DAO)**
 * Build `src/broski/memory/database.py` using `aiosqlite`.
-* Design relational tables: `memories` (key-value facts), `user_preferences`, and `security_audit_logs`.
-* Write unit tests verifying async database connection lifecycle and schema creation.
+* Design relational tables: `memories`, `user_preferences`, `installed_apps`, `security_audit_logs`, `session_context`.
+* Implement `src/broski/memory/store.py` with CRUD, fuzzy app search, and audit trails.
+* Write comprehensive unit tests in `tests/unit/test_database.py` and `tests/unit/test_memory_store.py`.
+
+---
+
+## 📅 Day 4: 2026-11-20 — Sprint 1 (Days 3 & 4 of 5): Asynchronous SQLite Engine & Memory DAO
+
+### 🎯 Daily Objective
+Build the persistent storage engine and Data Access Object (DAO) for broski. Deliver non-blocking asynchronous database operations (`aiosqlite`), implement Write-Ahead Logging (WAL mode), catalog desktop apps (e.g., Riot Games, Spotify) with fuzzy alias resolution, provide immutable security audit logging, and implement GDPR-style memory forgetting.
+
+---
+
+### 🛠️ 1. What We Built Today
+1. **Asynchronous SQLite Database Engine (`src/broski/memory/database.py`)**:
+   * Context manager `get_connection()` with automatic PRAGMA initialization:
+     * `PRAGMA foreign_keys = ON;` (relational integrity).
+     * `PRAGMA journal_mode = WAL;` (Write-Ahead Logging for non-blocking concurrent reads).
+     * `PRAGMA synchronous = NORMAL;` (optimal SSD write performance).
+     * `PRAGMA busy_timeout = 5000;` (resilient lock recovery).
+   * Schema initialization `init_db()` covering 5 relational tables:
+     * `memories`: Key-value facts, category, confidence, and timestamps.
+     * `user_preferences`: User-configured settings.
+     * `installed_apps`: Desktop application registry with paths and alias JSON.
+     * `security_audit_logs`: Immutable audit trail for every tool execution.
+     * `session_context`: Short-term multi-turn conversational history.
+2. **Data Access Object (DAO) & Store (`src/broski/memory/store.py`)**:
+   * `MemoryItem`, `AppItem`, `AuditEvent`, `SessionMessage` typed Pydantic models.
+   * `save_memory()` with `ON CONFLICT DO UPDATE` upsert semantics.
+   * `search_memories()` with substring and category filtering.
+   * `forget_recent(seconds)`: Enables users to say *"broski, forget what I just said"* and instantly delete recent facts.
+   * `register_app()` and `find_app()`: Two-pass fuzzy search enabling spoken commands like *"open riot"* or *"launch val"* to resolve to the exact `RiotClientServices.exe`.
+   * `record_app_launch()`: Tracks frequency of app launches.
+   * `log_audit_event()`: Records security events with JSON metadata.
+   * `append_session_message()` and `get_session_history()`: Maintains chronological conversational state.
+3. **Automated Unit Test Suite (`tests/unit/test_database.py` & `tests/unit/test_memory_store.py`)**:
+   * 4 database tests (table creation, WAL mode, foreign keys, idempotency).
+   * 7 memory store tests (memory CRUD, search, forget, preferences, app aliases, audit logs, session context).
+   * **Suite Status**: 18 tests passing in 0.94s with 100% green checks.
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. Why SQLite WAL Mode is Critical for Voice Assistants
+* **The Traditional SQLite Problem (Rollback Journal)**: When a process writes to SQLite, it locks the entire database file. If broski is transcribing audio and tries to log an audit event, a reading thread would freeze, causing speech audio to stutter or drop frames.
+* **The WAL Solution**: In Write-Ahead Logging mode, writes are appended to a separate `.db-wal` file. Readers can read from the main database file without blocking or waiting for the writer, and writers never block readers. This guarantees sub-millisecond database response times during live speech!
+
+#### B. The Data Access Object (DAO) Pattern
+* Rather than scattering raw SQL queries like `SELECT * FROM memories...` all over the voice engine and LLM tools, we encapsulate all SQL inside `MemoryStore`.
+* **Benefits**:
+  1. If we ever add vector embeddings or migrate to Postgres, the rest of the application remains untouched.
+  2. The AI tools only interact with clean, typed Python objects (`MemoryItem`, `AppItem`).
+
+#### C. How Fuzzy App Lookup Works
+* When you say *"open riot"*, broski queries `installed_apps`.
+* It checks:
+  1. Exact case-insensitive match on the primary name (`"Riot Client"`).
+  2. Exact match inside the parsed JSON `aliases` array (`["riot", "val", "valorant"]`).
+  3. Partial / substring match.
+* This allows users to use slang or nicknames naturally without strict command syntax.
+
+---
+
+### 💻 3. Commands Executed & Outputs
+```powershell
+# 1. Executed full unit test suite
+.\.venv\Scripts\pytest -v
+# -> 18 passed in 0.94s
+
+# 2. Formatted and validated codebase
+.\.venv\Scripts\ruff check --fix .
+.\.venv\Scripts\ruff format .
+# -> All checks passed!
+```
+
+---
+
+### 🚀 4. Plan for Day 5 of Sprint 1 (Sprint Review & Merge)
+* Perform final end-to-end verification of Sprint 1 foundation.
+* Conduct Sprint 1 review and retrospective.
+* Merge `feat/sprint-1-foundation` into `main` and push to GitHub.
+* Plan kickoff for Sprint 2 (Local Sensory Audio: Wake Word, VAD, and Whisper).
