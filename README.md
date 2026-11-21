@@ -52,8 +52,9 @@
 
 ## 📚 Documentation & Dev Logs
 * 📄 **[Product Requirements Document (PRD)](docs/PRD.md)**: Detailed Epics, User Stories with Given-When-Then criteria, and Definition of Done.
-* 🏗️ **[System Architecture](docs/ARCHITECTURE.md)**: Micro-kernel design, state machine, risk gating, and component diagrams.
-* 📓 **[Engineering Journal & Daily Dev Log](docs/DEV_LOG.md)**: Step-by-step log of what was done, why it was done, technical rationale, and learning takeaways.
+* 🏗️ **[System Architecture](docs/ARCHITECTURE.md)**: Overall master architecture, micro-kernel design, state machine, risk gating, and component diagrams.
+* 📓 **[Engineering Journal Index](docs/DEV_LOG.md)**: Central directory linking to every individual sprint dev log.
+  * 📄 **[Sprint 1 Dev Log](docs/SPRINT_1_DEV_LOG.md)**: Foundation, SQLite WAL engine, Pydantic settings, and test suite.
 
 ---
 
