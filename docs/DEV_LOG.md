@@ -343,3 +343,89 @@ Build the persistent storage engine and Data Access Object (DAO) for broski. Del
 * Conduct Sprint 1 review and retrospective.
 * Merge `feat/sprint-1-foundation` into `main` and push to GitHub.
 * Plan kickoff for Sprint 2 (Local Sensory Audio: Wake Word, VAD, and Whisper).
+
+---
+
+## 📅 Day 5: 2026-11-21 — Sprint 1 (Day 5 of 5): Sprint Review, Retrospective & Merge to Main
+
+### 🎯 Daily Objective
+Conduct the formal Sprint 1 Review and Retrospective. Audit all deliverables against the Agile Definition of Done (DoD), run final automated quality gates, merge the `feat/sprint-1-foundation` feature branch into `main`, and push the production-ready foundation to GitHub.
+
+---
+
+### 🔍 1. Definition of Done (DoD) Audit
+Every requirement defined in `docs/PRD.md` Section 4 was audited:
+* [x] **Branch Hygiene**: Developed exclusively on `feat/sprint-1-foundation`.
+* [x] **Code Standards**: Type annotations (Python 3.12 PEP 604 `X | None`), zero lint errors via `ruff`.
+* [x] **Automated Tests**: 18 automated unit tests created across `test_config.py`, `test_database.py`, and `test_memory_store.py`.
+* [x] **Zero Regressions**: 100% test pass rate in 1.22 seconds.
+* [x] **Documentation**: Daily engineering journal entries maintained with educational insights.
+* [x] **Clean Storage & Gitignore**: SQLite `.db`, `.db-wal`, models, and `.env` properly ignored.
+
+---
+
+### 📊 2. Sprint 1 Deliverables Summary
+1. **Isolated Runtime & Packaging**:
+   * Python 3.12.3 virtual environment (`.venv`).
+   * PEP 517/518/621 `pyproject.toml` with modular dependency extras (`audio`, `brain`, `system`, `integrations`, `ui`, `dev`).
+   * Editable installation (`pip install -e ".[dev]"`).
+2. **Type-Safe Configuration & Security**:
+   * `src/broski/config.py` using `pydantic-settings` (v2.x).
+   * Sensitive API keys masked via `SecretStr` to eliminate credential leaks.
+   * Cached singleton `get_settings()` with `@lru_cache`.
+   * Template configuration in `.env.example`.
+3. **Local Asynchronous SQLite Engine**:
+   * `src/broski/memory/database.py` with `aiosqlite`.
+   * High-concurrency Write-Ahead Logging (`PRAGMA journal_mode = WAL`) to ensure database access never stutters audio playback or capture.
+   * Foreign keys enabled and busy timeout configured.
+   * 5 relational schemas: `memories`, `user_preferences`, `installed_apps`, `security_audit_logs`, and `session_context`.
+4. **Data Access Object (DAO) & Store**:
+   * `src/broski/memory/store.py` providing high-level async methods.
+   * Long-term memory CRUD with upsert semantics.
+   * User privacy forget method (`forget_recent()`).
+   * Desktop App Registry (`find_app()`) with fuzzy multi-alias matching (tested with Riot Games, Spotify).
+   * Structured audit logger (`log_audit_event()`).
+
+---
+
+### 💡 3. Sprint 1 Retrospective
+
+#### What Went Well:
+* Sticking to the 5-day cadence allowed us to carefully examine every architectural decision without rushing.
+* Choosing Python 3.12 avoided native C++ wheel compilation headaches on Windows 11.
+* The test-driven approach caught type and schema issues early, resulting in a fast, robust test suite (18 tests passing in ~1s).
+
+#### Key Learning Insights:
+* Why modern projects use `pyproject.toml` over legacy `setup.py` / `requirements.txt`.
+* Why Pydantic `SecretStr` is crucial for desktop AI assistants.
+* Why SQLite WAL mode is required for real-time audio systems to eliminate disk I/O freezes.
+* How fuzzy matching in SQLite enables natural voice queries like *"open riot"* or *"launch val"* without hardcoded if-else statements.
+
+---
+
+### 💻 4. Commands Executed & Outputs
+```powershell
+# 1. Quality gate validation
+.\.venv\Scripts\ruff check .
+# -> All checks passed!
+
+.\.venv\Scripts\pytest -v
+# -> 18 passed in 1.22s
+
+# 2. Merge feature branch into main
+git checkout main
+git merge feat/sprint-1-foundation --no-ff -m "merge: complete Sprint 1 foundation and core infrastructure"
+git push origin main
+```
+
+---
+
+### 🚀 5. Sprint 2 Roadmap (Local Audio Sensory Subsystem)
+* **Goal**: Hands-free voice capture, wake word detection, voice activity segmentation, and local speech-to-text.
+* **Sprint 2 Milestones**:
+  1. `feat/sprint-2-audio` branch creation.
+  2. Audio capture stream (`sounddevice`) with lock-free ring buffer (16kHz mono).
+  3. Wake word engine (`openWakeWord`) running locally on CPU.
+  4. Voice Activity Detection (`Silero VAD` v4 ONNX) for end-of-speech silence detection.
+  5. Local Speech-to-Text (`faster-whisper` INT8 CTranslate2) capped at 2 CPU threads.
+  6. Interactive CLI test harness: speak -> transcribe live.
