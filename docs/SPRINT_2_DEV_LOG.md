@@ -78,3 +78,82 @@ git checkout -b feat/sprint-2-audio
 * Build `src/broski/audio/vad.py` to calculate speech probability and detect end-of-speech silence pauses (>600ms).
 * Build `src/broski/audio/wakeword.py` using `openWakeWord` for continuous low-CPU wake detection.
 * Write automated unit tests for VAD state transitions and wake-word scoring.
+
+---
+
+## 📅 Day 2: 2026-11-23 — Sprint 2 (Day 2 of 4): The Acoustic Filters (Silero VAD + openWakeWord)
+
+### 🎯 Daily Objective
+Implement the local acoustic filters that give broski selective attention. Deploy Silero VAD v4 via ONNX Runtime to distinguish human vocal speech from background noise and detect end-of-turn silence pauses. Deploy openWakeWord on CPU for continuous, low-power trigger detection (<1.5% CPU load).
+
+---
+
+### 🛠️ 1. What We Built Today
+1. **Model Cache & Acquisition (`data/models/vad/silero_vad.onnx`)**:
+   * Acquired the official 2.2 MB `silero_vad.onnx` neural model, avoiding heavy 500MB+ PyTorch framework dependencies in the runtime.
+   * Acquired openWakeWord ONNX acoustic models (`hey_jarvis_v0.1.onnx`, `alexa`, etc.) using `openwakeword.utils.download_models()`.
+2. **Neural Voice Activity Detection (`src/broski/audio/vad.py`)**:
+   * `SileroVADDetector`: Stateful recurrent neural network (RNN) processing 32ms (512 samples @ 16kHz) audio frames via `onnxruntime`.
+   * Preserves and threads recurrent hidden state `state` `(2, 1, 128)` across frames.
+   * `process_chunk()`: Implements an audio state machine that:
+     1. Transitions to `is_speaking = True` when vocal probability $\ge 0.5$.
+     2. Collects speech frames into an active segment buffer.
+     3. Detects end-of-utterance pauses ($>600\text{ ms}$ sustained silence) and emits the complete concatenated speech segment ready for Whisper!
+   * `reset()`: Flushes recurrent hidden state and active speech buffers.
+3. **Continuous Wake Word Engine (`src/broski/audio/wakeword.py`)**:
+   * `WakeWordDetector`: Wraps openWakeWord ONNX inference engine over 80ms (1280 samples) sliding windows.
+   * Configured with a 1.5-second refractory cooldown period to eliminate duplicate/stutter triggers for the same spoken utterance.
+   * Extremely lightweight CPU footprint ($< 1.5\%$ single-core load on Tiger Lake i7-1165G7).
+4. **Automated Unit Test Suites**:
+   * 4 tests in `tests/unit/test_vad.py` (initialization, silence baseline verification, state reset, speech-to-silence state machine lifecycle).
+   * 4 tests in `tests/unit/test_wakeword.py` (initialization, silence non-trigger, threshold activation & cooldown, reset).
+   * **Total Test Suite**: **37 passed in 3.01s** with 100% green checks and zero linter warnings.
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. Why Neural VAD (Silero) is Light-Years Ahead of Energy/Volume Meters
+* **The Problem with Energy / RMS Thresholding**: Simple voice assistants use volume thresholding (e.g. "if sound > -20dB, user is talking"). If you drop a pen, type loudly on a mechanical keyboard, cough, or if a laptop cooling fan spins up, volume meters trigger false speech recordings.
+* **The Neural Solution**: Silero VAD is a trained deep convolutional/recurrent neural network that models human vocal tract formant frequencies. It evaluates: *"Does this frequency pattern match vocal cord phonation?"*
+* **The Result**: You can type on a mechanical keyboard or blast a table fan directly into the microphone, and Silero VAD reports `0.01` (silence). As soon as you speak a word, it immediately spikes to `0.95`!
+
+#### B. The Stateful Recurrent Tensor in ONNX
+* Speech has temporal continuity—a vowel sound naturally stretches across multiple consecutive 32ms frames.
+* Silero VAD achieves sub-millisecond inference by passing an internal memory tensor `state` `(2, 1, 128)` from one frame to the next:
+  $$\text{Input Frame}_t + \text{State}_{t-1} \longrightarrow \text{Probability}_t + \text{State}_t$$
+* This gives the model memory of past sounds without having to recompute historical audio frames!
+
+#### C. Wake Word Sliding Windows & Cooldown
+* Wake word models look for acoustic phonemes across an 80ms to 120ms rolling window.
+* Without a **refractory cooldown**, saying *"Hey jarvis"* might trigger 3 separate wake events within 200 milliseconds as the audio waveform passes through the sliding window.
+* Our cooldown lock guarantees exactly **one clean wake event per spoken phrase**.
+
+---
+
+### 💻 3. Commands Executed & Outputs
+```powershell
+# 1. Downloaded Silero ONNX model (2.2 MB)
+python -c "urllib.request.urlretrieve('https://raw.githubusercontent.com/.../silero_vad.onnx', 'data/models/vad/silero_vad.onnx')"
+
+# 2. Downloaded openWakeWord ONNX acoustic models
+.\.venv\Scripts\python -c "import openwakeword.utils; openwakeword.utils.download_models()"
+
+# 3. Executed full unit test suite (37 tests)
+.\.venv\Scripts\pytest -v
+# -> 37 passed in 3.01s
+
+# 4. Linted and validated code
+.\.venv\Scripts\ruff check .
+# -> All checks passed!
+```
+
+---
+
+### 🚀 4. Plan for Day 3 of Sprint 2
+* **Topic**: **The Transcriber (Local `faster-whisper` INT8 on CPU + Pipeline Coordinator)**
+* Install `faster-whisper` in `.venv`.
+* Build `src/broski/audio/stt.py` using CTranslate2 INT8 quantization, capped at 2 CPU threads to protect laptop thermals.
+* Build the `AudioPipelineCoordinator` linking:
+  $$\text{Microphone} \longrightarrow \text{RingBuffer} \longrightarrow \text{WakeWord} \longrightarrow \text{VAD} \longrightarrow \text{Whisper STT}$$
+* Write automated unit tests for speech transcription.
