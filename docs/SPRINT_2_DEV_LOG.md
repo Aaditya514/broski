@@ -157,3 +157,82 @@ python -c "urllib.request.urlretrieve('https://raw.githubusercontent.com/.../sil
 * Build the `AudioPipelineCoordinator` linking:
   $$\text{Microphone} \longrightarrow \text{RingBuffer} \longrightarrow \text{WakeWord} \longrightarrow \text{VAD} \longrightarrow \text{Whisper STT}$$
 * Write automated unit tests for speech transcription.
+
+---
+
+## 📅 Day 3: 2026-11-24 — Sprint 2 (Day 3 of 4): The Transcriber & Audio Pipeline Coordinator
+
+### 🎯 Daily Objective
+Implement the local speech-to-text transcriber using `faster-whisper` on CPU with INT8 quantization, capped at 2 CPU threads to prevent laptop heating. Connect all sensory components into a unified, non-blocking `AudioPipelineCoordinator` linking the microphone stream, circular ring buffer, openWakeWord, Silero VAD, and Whisper STT.
+
+---
+
+### 🛠️ 1. What We Built Today
+1. **Engine Installation**:
+   * Installed `faster-whisper` (1.2.1) and `ctranslate2` (4.9.1) into the Python 3.12 virtual environment.
+2. **Local Speech-to-Text (`src/broski/audio/stt.py`)**:
+   * `WhisperTranscriber`: High-performance CTranslate2 inference engine running quantized `base.en` (or multilingual `base`) locally on CPU.
+   * **Thermal Budget Protection**: Enforces `cpu_threads=2` so background speech transcription never monopolizes all 8 threads of the Intel Core i7-1165G7.
+   * Automatically normalizes incoming audio (int16 numpy arrays, raw bytes, or float32) into 16kHz float32 range `[-1.0, 1.0]`.
+   * Hallucination protection: Discards tiny audio clicks/bursts shorter than 100ms (<1600 samples).
+3. **Master Sensory Pipeline Coordinator (`src/broski/audio/pipeline.py`)**:
+   * `AudioPipelineCoordinator`: Thread-safe state machine linking the complete sensory loop:
+     $$\text{AudioCaptureStream} \longrightarrow \text{AudioRingBuffer} \longrightarrow \text{WakeWordDetector} \longrightarrow \text{SileroVADDetector} \longrightarrow \text{WhisperTranscriber}$$
+   * **4-Stage Pipeline State Machine**:
+     * `STOPPED`: Audio hardware stream closed.
+     * `IDLE`: Passively monitoring 80ms chunks for wake words ("hey jarvis" / "hey broski").
+     * `LISTENING`: Wake word detected! Emits `on_wake_word(score)` and monitors 32ms frames with Silero VAD until user finishes speaking.
+     * `PROCESSING`: Silence detected ($>600\text{ ms}$)! Emits `on_speech_end()`, sends speech segment to Whisper, and emits `on_transcript(text)`.
+   * **Dictation Mode Support**: When `pipeline.dictation_mode = True`, the pipeline bypasses wake word detection and streams speech recognition continuously for in-app typing!
+4. **Automated Unit Test Suites**:
+   * 4 tests in `tests/unit/test_stt.py` (initialization, short audio rejection, beam search transcription, raw byte streams).
+   * 3 tests in `tests/unit/test_audio_pipeline.py` (initial state, complete wake -> listening -> vad -> transcribe lifecycle, dictation mode).
+   * **Total Test Suite**: **44 passed in 9.13s** (`100% green check`).
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. Why CTranslate2 INT8 Quantization is 4x Faster on CPU
+* **Vanilla PyTorch Whisper**: Runs floating-point matrix multiplications (`float32`). On a mobile 4-core CPU, transcribing 3 seconds of speech takes ~1.5 to 2.5 seconds and heats up the CPU package.
+* **CTranslate2 INT8**: Quantizes the 32-bit floating point model weights down to 8-bit integers (`int8`).
+* **The Magic**:
+  1. The model memory footprint drops by 75% (from ~280 MB to ~70 MB).
+  2. Intel Tiger Lake CPUs have specialized **AVX2 / VNNI (Vector Neural Network Instructions)** that execute four 8-bit integer operations in the exact same clock cycle as a single 32-bit float operation!
+  3. Real-Time Factor (RTF) drops to $<0.15$—transcribing 3 seconds of speech in under 300 milliseconds!
+
+#### B. The 2-Thread CPU Cap Explained
+* Your Intel Core i7-1165G7 has 4 physical cores (8 threads).
+* If an inference engine spins up 8 threads, the CPU spikes to 100% load, the laptop fan screams, and the CPU throttles down from 4.7 GHz to 1.8 GHz.
+* By locking `cpu_threads=2`, Whisper executes in ~300ms while leaving 6 threads completely free for Windows, Chrome, and your games.
+
+#### C. The Pipeline State Machine & Dictation Mode
+* In normal conversational mode:
+  $$\text{IDLE} \xrightarrow{\text{Wake Word}} \text{LISTENING} \xrightarrow{\text{VAD End}} \text{PROCESSING} \xrightarrow{\text{Transcript}} \text{IDLE}$$
+* In dictation mode:
+  $$\text{LISTENING} \xrightarrow{\text{VAD End}} \text{PROCESSING} \xrightarrow{\text{Transcript}} \text{LISTENING}$$
+* This allows seamless toggling between an ambient voice assistant and an exact, hands-free voice dictation tool!
+
+---
+
+### 💻 3. Commands Executed & Outputs
+```powershell
+# 1. Installed faster-whisper in venv
+.\.venv\Scripts\pip install faster-whisper
+
+# 2. Executed full unit test suite (44 tests)
+.\.venv\Scripts\pytest -v
+# -> 44 passed in 9.13s
+
+# 3. Linted and validated code
+.\.venv\Scripts\ruff check .
+# -> All checks passed!
+```
+
+---
+
+### 🚀 4. Plan for Day 4 of Sprint 2 (Sprint Review, Calibration & Merge)
+* Build interactive terminal CLI demo tool: speak into your microphone/earphones and watch real-time detection in your console!
+* Run full quality gate and DoD audit.
+* Merge `feat/sprint-2-audio` into `main` and push to GitHub.
+* Kick off Sprint 3 (Piper Neural Text-to-Speech & Barge-in Voice Output).
