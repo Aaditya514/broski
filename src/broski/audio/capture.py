@@ -44,26 +44,33 @@ def list_input_devices() -> list[dict[str, Any]]:
 
 
 def find_default_or_headset_device() -> tuple[int | None, str]:
-    """Find the best input device, prioritizing connected Bluetooth headsets/earbuds on WASAPI."""
+    """Find the best input device, prioritizing connected Bluetooth headsets."""
     devices = list_input_devices()
     if not devices:
         return None, "Default Audio Device"
 
-    # Priority 1: Headset on Windows WASAPI (hostapi == 2 is the modern Windows audio engine)
+    # Priority 1: Direct Windows Bluetooth Hands-Free driver for OnePlus / Nord / Buds
     for dev in devices:
         name_lower = dev["name"].lower()
-        if dev.get("hostapi") == 2 and any(
-            kw in name_lower for kw in ("oneplus", "nord", "buds", "headset", "airpods")
+        if any(k in name_lower for k in ("oneplus", "nord", "buds")) and (
+            "bthhfenum" in name_lower or dev.get("hostapi") == 3
         ):
-            logger.info(
-                "Auto-prioritizing WASAPI headset: [%d] %s", dev["index"], dev["name"]
-            )
-            return dev["index"], f"{dev['name']} (Windows WASAPI)"
+            logger.info("Found direct OnePlus headset driver: [%d] %s", dev["index"], dev["name"])
+            return dev["index"], dev["name"]
 
-    # Priority 2: Headset on any other host API
+    # Priority 2: Direct Bluetooth Hands-Free driver for any headset
+    for dev in devices:
+        name_lower = dev["name"].lower()
+        if "bthhfenum" in name_lower or (
+            dev.get("hostapi") == 3 and any(k in name_lower for k in ("headset", "airpods"))
+        ):
+            logger.info("Found direct Bluetooth headset driver: [%d] %s", dev["index"], dev["name"])
+            return dev["index"], dev["name"]
+
+    # Priority 2: Headset on any host API
     for dev in devices:
         if dev.get("is_headset"):
-            logger.info("Auto-prioritizing headset: [%d] %s", dev["index"], dev["name"])
+            logger.info("Found headset: [%d] %s", dev["index"], dev["name"])
             return dev["index"], dev["name"]
 
     # Priority 3: Fall back to Windows system default
