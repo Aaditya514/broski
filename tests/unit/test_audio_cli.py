@@ -24,4 +24,4 @@ def test_print_banner_and_devices(capsys) -> None:
         print_devices()
         captured_devices = capsys.readouterr()
         assert "Test Microphone" in captured_devices.out
-        assert "[ACTIVE DEFAULT]" in captured_devices.out
+        assert "[WINDOWS DEFAULT]" in captured_devices.out

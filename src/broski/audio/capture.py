@@ -25,6 +25,10 @@ def list_input_devices() -> list[dict[str, Any]]:
     input_devs = []
     for idx, dev in enumerate(devices):
         if dev["max_input_channels"] > 0:
+            name_lower = dev["name"].lower()
+            is_headset = any(
+                kw in name_lower for kw in ("oneplus", "nord", "buds", "headset", "airpods")
+            ) and not dev["name"].startswith("@")
             input_devs.append(
                 {
                     "index": idx,
@@ -33,9 +37,27 @@ def list_input_devices() -> list[dict[str, Any]]:
                     "default_samplerate": int(dev["default_samplerate"]),
                     "hostapi": dev["hostapi"],
                     "is_default": idx == default_input_idx,
+                    "is_headset": is_headset,
                 }
             )
     return input_devs
+
+
+def find_default_or_headset_device() -> tuple[int | None, str]:
+    """Find the best input device, prioritizing connected Bluetooth headsets/earbuds."""
+    devices = list_input_devices()
+    if not devices:
+        return None, "Default Audio Device"
+
+    # Prioritize active headsets (e.g. OnePlus Nord Buds 3, AirPods)
+    for dev in devices:
+        if dev.get("is_headset"):
+            logger.info("Auto-prioritizing connected headset: [%d] %s", dev["index"], dev["name"])
+            return dev["index"], dev["name"]
+
+    # Fall back to Windows system default
+    default_dev = next((d for d in devices if d["is_default"]), devices[0])
+    return default_dev["index"], default_dev["name"]
 
 
 def resample_audio(audio: np.ndarray, orig_sr: int, target_sr: int = 16000) -> np.ndarray:
@@ -67,7 +89,11 @@ class AudioCaptureStream:
         on_error: Callable[[Exception], None] | None = None,
     ) -> None:
         self.ring_buffer = ring_buffer
-        self.device_index = device_index
+        if device_index is None:
+            best_idx, _ = find_default_or_headset_device()
+            self.device_index = best_idx
+        else:
+            self.device_index = device_index
         self.target_sample_rate = target_sample_rate
         self.chunk_duration_ms = chunk_duration_ms
         self.on_error = on_error

@@ -31,9 +31,14 @@ def print_devices() -> None:
     print("\n[Input Audio Devices Detected on Windows]")
     devices = list_input_devices()
     for dev in devices:
-        default_tag = " [ACTIVE DEFAULT]" if dev["is_default"] else ""
+        tags = []
+        if dev.get("is_headset"):
+            tags.append("ACTIVE HEADSET ⭐")
+        if dev["is_default"]:
+            tags.append("WINDOWS DEFAULT")
+        tag_str = f" [{', '.join(tags)}]" if tags else ""
         print(
-            f"  [{dev['index']}] {dev['name']} ({dev['channels']} ch, {dev['default_samplerate']} Hz){default_tag}"
+            f"  [{dev['index']}] {dev['name']} ({dev['channels']} ch, {dev['default_samplerate']} Hz){tag_str}"
         )
     print("-" * 65)
 
@@ -65,54 +70,41 @@ def probe_device_activity(idx: int, duration_sec: float = 0.15) -> float:
 
 
 def auto_select_device(requested_idx: int | None = None) -> tuple[int, str]:
-    """Select the active device or auto-fall back to one with working microphone input."""
+    """Select the active device, prioritizing OnePlus Nord Buds 3 or connected headsets."""
     devices = list_input_devices()
     if not devices:
         return 0, "Default Audio Device"
 
-    # If user explicitly requested an index, honor it
+    # 1. If user explicitly requested an index via CLI, honor it
     if requested_idx is not None:
         for dev in devices:
             if dev["index"] == requested_idx:
                 return dev["index"], dev["name"]
         return requested_idx, f"Device {requested_idx}"
 
-    # Check the system default device first
+    # 2. Priority 1: Connected Bluetooth headset / earphones (e.g. OnePlus Nord Buds 3)
+    for dev in devices:
+        if dev.get("is_headset"):
+            print(
+                f"\n[🎧 Headset Detected] Automatically selecting your '{dev['name']}' (Device [{dev['index']}])"
+            )
+            return dev["index"], dev["name"]
+
+    # 3. Priority 2: System default if active
     default_dev = next((d for d in devices if d["is_default"]), devices[0])
     default_idx = default_dev["index"]
-
-    # Quick probe: is system default active or dead silent?
     default_std = probe_device_activity(default_idx)
     if default_std >= 5.0:
         return default_idx, default_dev["name"]
 
-    # System default returned near-zero signal (e.g. muted laptop array).
-    # Search for an active Bluetooth headset or secondary mic with audio signal!
-    for dev in devices:
-        if dev["index"] == default_idx:
-            continue
-        # Prioritize headsets / earphones
-        name_lower = dev["name"].lower()
-        if any(kw in name_lower for kw in ("headset", "buds", "ear", "bluetooth", "oneplus")):
-            std = probe_device_activity(dev["index"])
-            if std >= 5.0:
-                print(
-                    f"\n[Auto-Detect] System default mic [{default_idx}] appears silent (Signal: {default_std:.1f})."
-                )
-                print(
-                    f"[Auto-Detect] Auto-switched to active headset [{dev['index']}]: {dev['name']}"
-                )
-                return dev["index"], dev["name"]
-
-    # If no headset has sound, probe all others
+    # 4. Fall back to any active mic
     for dev in devices:
         if dev["index"] != default_idx:
             std = probe_device_activity(dev["index"])
-            if std >= 10.0:
+            if std >= 5.0:
                 print(f"\n[Auto-Detect] Auto-switched to active input [{dev['index']}]: {dev['name']}")
                 return dev["index"], dev["name"]
 
-    # Fall back to default
     return default_idx, default_dev["name"]
 
 
