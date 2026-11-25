@@ -54,7 +54,39 @@
 * 📄 **[Product Requirements Document (PRD)](docs/PRD.md)**: Detailed Epics, User Stories with Given-When-Then criteria, and Definition of Done.
 * 🏗️ **[System Architecture](docs/ARCHITECTURE.md)**: Overall master architecture, micro-kernel design, state machine, risk gating, and component diagrams.
 * 📓 **[Engineering Journal Index](docs/DEV_LOG.md)**: Central directory linking to every individual sprint dev log.
-  * 📄 **[Sprint 1 Dev Log](docs/SPRINT_1_DEV_LOG.md)**: Foundation, SQLite WAL engine, Pydantic settings, and test suite.
+  * 📄 **[Sprint 1 Dev Log](docs/SPRINT_1_DEV_LOG.md)**: Foundation, SQLite WAL engine, Pydantic settings, and test suite (18/18 tests).
+  * 📄 **[Sprint 2 Dev Log](docs/SPRINT_2_DEV_LOG.md)**: Local audio sensory subsystem, WASAPI/Bluetooth stream, Silero VAD, openWakeWord, Whisper INT8, and live CLI (45/45 tests).
+  * 📄 **[Sprint 3 Dev Log](docs/SPRINT_3_DEV_LOG.md)**: Neural speech synthesis (Piper TTS) & barge-in voice output.
+
+---
+
+## ⚡ Quickstart: Real-Time Audio Sensory Pipeline
+
+Run the live audio sensory pipeline directly from PowerShell:
+
+```powershell
+# 1. Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# 2. Run with Wake Word Detection (Say "Hey Jarvis"):
+broski-listen
+
+# 3. Or run in Continuous Dictation Mode (Speak freely, no wake word):
+broski-listen --dictation
+```
+
+---
+
+## 🗺️ Sprint Roadmap
+
+| Sprint | Milestone / Subsystem | Status | Dev Log Link |
+| :---: | :--- | :---: | :--- |
+| **Sprint 1** | **Foundation & Core Infrastructure**<br>• Python 3.12 `.venv` & `pyproject.toml`<br>• Pydantic Settings & `.env`<br>• Async SQLite Engine (`aiosqlite` WAL mode)<br>• MemoryStore DAO & App Registry | **COMPLETED** | 📄 **[Sprint 1 Dev Log](docs/SPRINT_1_DEV_LOG.md)** |
+| **Sprint 2** | **Local Audio Sensory Subsystem**<br>• Hardware Discovery & WASAPI / Bluetooth Stream<br>• Lock-Free Circular Audio Ring Buffer<br>• Silero VAD v4 Neural Voice Detection<br>• Low-CPU Wake Word (`openWakeWord`)<br>• Local Speech-to-Text (`faster-whisper` INT8 on CPU)<br>• Interactive Live Terminal CLI (`broski-listen`) | **COMPLETED** | 📄 **[Sprint 2 Dev Log](docs/SPRINT_2_DEV_LOG.md)** |
+| **Sprint 3** | **Neural Speech Synthesis & Barge-in**<br>• Piper TTS ONNX local voice synthesis<br>• Non-blocking audio playback stream (`sounddevice.OutputStream`)<br>• Interruption / barge-in detector | **IN PROGRESS** | 📄 **[Sprint 3 Dev Log](docs/SPRINT_3_DEV_LOG.md)** |
+| **Sprint 4** | **Cloud Brain, Intent Routing & Active Window Text Injection**<br>• Google Gemini API (`google-genai` SDK)<br>• Function calling & prompt engineering<br>• Windows `SendInput` active-window text typing | **UPCOMING** | 📄 *Pending* |
+| **Sprint 5** | **Security Gated System Tools & Deep Integrations**<br>• Whitelist app launcher (Riot Games, Steam, Discord)<br>• Chrome browser automation (Playwright)<br>• Obsidian Local REST API vault client<br>• Git developer ops & 3-tier security confirmation dialog | **UPCOMING** | 📄 *Pending* |
+| **Sprint 6** | **PySide6 Desktop UI & System Hardening**<br>• Floating translucent HUD pill<br>• System tray menu and controls<br>• Custom "Hey broski" openWakeWord model calibration | **UPCOMING** | 📄 *Pending* |
 
 ---
 
@@ -64,4 +96,4 @@ All development strictly follows a feature-branching workflow:
 2. New work begins on a branch: `git checkout -b <type>/<description>`.
 3. Changes are committed atomically using conventional commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`).
 4. Automated unit tests must pass before merging.
-5. Work is merged back into `main` and documented in `docs/DEV_LOG.md`.
+5. Work is merged back into `main` with `--no-ff` and documented in `docs/DEV_LOG.md`.
