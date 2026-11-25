@@ -82,22 +82,33 @@ def auto_select_device(requested_idx: int | None = None) -> tuple[int, str]:
                 return dev["index"], dev["name"]
         return requested_idx, f"Device {requested_idx}"
 
-    # 2. Priority 1: Connected Bluetooth headset / earphones (e.g. OnePlus Nord Buds 3)
+    # 2. Priority 1: Connected Bluetooth headset on Windows WASAPI (hostapi == 2)
+    for dev in devices:
+        name_lower = dev["name"].lower()
+        if dev.get("hostapi") == 2 and any(
+            kw in name_lower for kw in ("oneplus", "nord", "buds", "headset", "airpods")
+        ):
+            print(
+                f"\n[🎧 Headset Detected] Automatically selecting '{dev['name']}' on Windows WASAPI (Device [{dev['index']}])"
+            )
+            return dev["index"], f"{dev['name']} (Windows WASAPI)"
+
+    # 3. Priority 2: Connected Bluetooth headset on any host API
     for dev in devices:
         if dev.get("is_headset"):
             print(
-                f"\n[🎧 Headset Detected] Automatically selecting your '{dev['name']}' (Device [{dev['index']}])"
+                f"\n[🎧 Headset Detected] Automatically selecting '{dev['name']}' (Device [{dev['index']}])"
             )
             return dev["index"], dev["name"]
 
-    # 3. Priority 2: System default if active
+    # 4. Priority 3: System default if active
     default_dev = next((d for d in devices if d["is_default"]), devices[0])
     default_idx = default_dev["index"]
     default_std = probe_device_activity(default_idx)
     if default_std >= 5.0:
         return default_idx, default_dev["name"]
 
-    # 4. Fall back to any active mic
+    # 5. Fall back to any active mic
     for dev in devices:
         if dev["index"] != default_idx:
             std = probe_device_activity(dev["index"])

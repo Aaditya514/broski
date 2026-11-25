@@ -44,18 +44,29 @@ def list_input_devices() -> list[dict[str, Any]]:
 
 
 def find_default_or_headset_device() -> tuple[int | None, str]:
-    """Find the best input device, prioritizing connected Bluetooth headsets/earbuds."""
+    """Find the best input device, prioritizing connected Bluetooth headsets/earbuds on WASAPI."""
     devices = list_input_devices()
     if not devices:
         return None, "Default Audio Device"
 
-    # Prioritize active headsets (e.g. OnePlus Nord Buds 3, AirPods)
+    # Priority 1: Headset on Windows WASAPI (hostapi == 2 is the modern Windows audio engine)
+    for dev in devices:
+        name_lower = dev["name"].lower()
+        if dev.get("hostapi") == 2 and any(
+            kw in name_lower for kw in ("oneplus", "nord", "buds", "headset", "airpods")
+        ):
+            logger.info(
+                "Auto-prioritizing WASAPI headset: [%d] %s", dev["index"], dev["name"]
+            )
+            return dev["index"], f"{dev['name']} (Windows WASAPI)"
+
+    # Priority 2: Headset on any other host API
     for dev in devices:
         if dev.get("is_headset"):
-            logger.info("Auto-prioritizing connected headset: [%d] %s", dev["index"], dev["name"])
+            logger.info("Auto-prioritizing headset: [%d] %s", dev["index"], dev["name"])
             return dev["index"], dev["name"]
 
-    # Fall back to Windows system default
+    # Priority 3: Fall back to Windows system default
     default_dev = next((d for d in devices if d["is_default"]), devices[0])
     return default_dev["index"], default_dev["name"]
 
