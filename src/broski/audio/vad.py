@@ -172,8 +172,8 @@ class SileroVADDetector:
         prob = self.get_speech_probability(chunk_int16)
         finished_segment = None
 
-        # Speech detected if VAD probability is high OR significant vocal audio energy is present
-        is_speech_frame = (prob >= self.threshold) or (rms >= 600.0 and prob >= 0.05)
+        # Speech detected if neural VAD probability is high OR vocal audio energy is present
+        is_speech_frame = (prob >= self.threshold) or (rms >= 500.0)
 
         if is_speech_frame:
             # User is speaking
