@@ -297,6 +297,11 @@ Deliver the interactive live microphone testing tool (`broski-listen`), verify r
 * How stateful recurrent neural networks (RNNs) in ONNX preserve vocal phoneme memory across 32ms frames.
 * Why INT8 AVX2 instructions run 4x faster on modern Intel x86-64 CPUs compared to 32-bit floating point math.
 
+#### Real-World Hardware Calibration (OnePlus Nord Buds 3 & Windows Bluetooth):
+* **The Bluetooth Wrapper Problem**: Windows 11 exposes Bluetooth headsets under multiple APIs. Legacy MME and virtual WASAPI wrappers frequently output silence (`1%` / `RMS: 0.5`) because Windows fails to initiate the SCO recording handshake.
+* **Direct Hardware Driver Binding (`bthhfenum.sys`)**: By detecting the underlying Windows Bluetooth Hands-Free driver (`Device [29]` via WDM-KS), `broski` taps directly into the hardware audio stream at native 16,000 Hz with rich signal (`RMS: 1500–2900`).
+* **Dual-Engine Speech Detection**: Combining Neural VAD with Acoustic Vocal Energy ($\text{RMS} \ge 500$) guarantees immediate, reliable speech capture without waiting for high VAD confidence on compressed Bluetooth streams.
+
 ---
 
 ### 💻 4. Commands Executed & Outputs
