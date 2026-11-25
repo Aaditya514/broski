@@ -10,6 +10,8 @@ import time
 from collections.abc import Callable
 from enum import Enum
 
+import numpy as np
+
 from broski.audio.capture import AudioCaptureStream
 from broski.audio.ring_buffer import AudioRingBuffer
 from broski.audio.stt import WhisperTranscriber
@@ -39,6 +41,7 @@ class AudioPipelineCoordinator:
         on_speech_start: Callable[[], None] | None = None,
         on_speech_end: Callable[[], None] | None = None,
         on_transcript: Callable[[str], None] | None = None,
+        on_audio_level: Callable[[float, float], None] | None = None,
         capture_stream: AudioCaptureStream | None = None,
         ring_buffer: AudioRingBuffer | None = None,
         wakeword_detector: WakeWordDetector | None = None,
@@ -52,6 +55,7 @@ class AudioPipelineCoordinator:
         self.on_speech_start = on_speech_start
         self.on_speech_end = on_speech_end
         self.on_transcript = on_transcript
+        self.on_audio_level = on_audio_level
 
         # Components (use provided or instantiate from settings)
         self.ring_buffer = ring_buffer or AudioRingBuffer(
@@ -140,6 +144,7 @@ class AudioPipelineCoordinator:
 
         listening_timeout_samples = int(self.settings.audio.sample_rate * 5.0)  # 5s max silence
         silence_after_wake = 0
+        was_speaking = False
 
         while not self._stop_event.is_set():
             current_state = self.state
@@ -161,9 +166,17 @@ class AudioPipelineCoordinator:
                 chunk = self.ring_buffer.read_samples(wakeword_chunk_size)
                 score, is_triggered = self.wakeword.predict(chunk)
 
+                if self.on_audio_level and len(chunk) > 0:
+                    rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+                    try:
+                        self.on_audio_level(rms, score)
+                    except (TypeError, ValueError, RuntimeError, OSError):
+                        pass
+
                 if is_triggered:
                     self._set_state(PipelineState.LISTENING)
                     silence_after_wake = 0
+                    was_speaking = False
                     self.vad.reset()
 
                     if self.on_wake_word:
@@ -183,12 +196,28 @@ class AudioPipelineCoordinator:
                 chunk = self.ring_buffer.read_samples(vad_chunk_size)
                 _prob, is_speaking, finished_segment = self.vad.process_chunk(chunk)
 
+                if self.on_audio_level and len(chunk) > 0:
+                    rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+                    try:
+                        self.on_audio_level(rms, 0.0)
+                    except (TypeError, ValueError, RuntimeError, OSError):
+                        pass
+
+                if is_speaking and not was_speaking:
+                    was_speaking = True
+                    if self.on_speech_start:
+                        try:
+                            self.on_speech_start()
+                        except (TypeError, ValueError, RuntimeError, OSError) as exc:
+                            logger.error("Error in on_speech_start callback: %s", exc)
+
                 # Timeout if no speech detected within 5 seconds of wake word
                 if not is_speaking:
                     silence_after_wake += len(chunk)
                     if silence_after_wake >= listening_timeout_samples:
                         logger.info("No speech detected within 5 seconds. Returning to IDLE.")
                         self._set_state(PipelineState.IDLE)
+                        was_speaking = False
                         self.vad.reset()
                         continue
                 else:
@@ -196,6 +225,7 @@ class AudioPipelineCoordinator:
 
                 # End of speech detected!
                 if finished_segment is not None:
+                    was_speaking = False
                     if self.on_speech_end:
                         try:
                             self.on_speech_end()
