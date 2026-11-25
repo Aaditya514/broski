@@ -68,6 +68,12 @@ class AudioConfig(BaseModel):
         default="en_US-lessac-medium",
         description="Piper voice model name (downloaded from Piper voice repo).",
     )
+    piper_length_scale: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speaking speed multiplier (1.0 = normal, <1.0 = faster, >1.0 = slower).",
+    )
 
     @field_validator("sample_rate")
     @classmethod
