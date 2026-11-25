@@ -208,7 +208,7 @@ def main() -> None:
             prob_pct = int(vad_prob * 100)
             speaking_hint = (
                 f"🗣️ Speaking ({prob_pct}%)"
-                if vad_prob >= settings.audio.vad_threshold
+                if (vad_prob >= settings.audio.vad_threshold or rms >= 600)
                 else f"👂 Listening ({prob_pct}%)"
             )
             status_text = (

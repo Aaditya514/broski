@@ -164,10 +164,18 @@ class SileroVADDetector:
         else:
             chunk_int16 = audio_chunk
 
+        rms = (
+            float(np.sqrt(np.mean(chunk_int16.astype(np.float32) ** 2)))
+            if len(chunk_int16) > 0
+            else 0.0
+        )
         prob = self.get_speech_probability(chunk_int16)
         finished_segment = None
 
-        if prob >= self.threshold:
+        # Speech detected if VAD probability is high OR significant vocal audio energy is present
+        is_speech_frame = (prob >= self.threshold) or (rms >= 600.0 and prob >= 0.05)
+
+        if is_speech_frame:
             # User is speaking
             self.is_speaking = True
             self._silent_samples_accumulated = 0
@@ -180,9 +188,10 @@ class SileroVADDetector:
 
                 # Check if silence duration exceeded
                 if self._silent_samples_accumulated >= self._silence_threshold_samples:
-                    # Speech turn complete!
+                    if self._speech_buffer:
+                        finished_segment = np.concatenate(self._speech_buffer)
+
                     self.is_speaking = False
-                    finished_segment = np.concatenate(self._speech_buffer)
                     self._speech_buffer.clear()
                     self._silent_samples_accumulated = 0
                     self.reset()
