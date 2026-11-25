@@ -33,12 +33,12 @@ class AudioConfig(BaseModel):
         description="Wake word trigger model name or path to custom .onnx model.",
     )
     wake_word_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="Activation confidence threshold for wake word."
+        default=0.35, ge=0.0, le=1.0, description="Activation confidence threshold for wake word."
     )
 
     # Voice Activity Detection (VAD) settings
     vad_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="Probability threshold for detecting speech."
+        default=0.35, ge=0.0, le=1.0, description="Probability threshold for detecting speech."
     )
     vad_silence_duration_ms: int = Field(
         default=600,

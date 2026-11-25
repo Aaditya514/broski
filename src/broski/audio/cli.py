@@ -179,7 +179,8 @@ def main() -> None:
         sys.stdout.flush()
 
     def on_speech_start() -> None:
-        pass
+        sys.stdout.write(f"\r{' ' * 75}\r  -> [🗣️ SPEECH DETECTED] Collecting speech turn...\n")
+        sys.stdout.flush()
 
     def on_speech_end() -> None:
         sys.stdout.write(
@@ -195,19 +196,25 @@ def main() -> None:
             )
         sys.stdout.flush()
 
-    def on_level(rms: float, wake_score: float) -> None:
+    def on_level(rms: float, value: float) -> None:
         meter = render_meter(rms)
         state = coordinator.state
         if state == PipelineState.IDLE:
             status_text = (
                 f"\r[👂 IDLE] Mic: {meter} (RMS: {int(rms):4d}) | "
-                f"Wake Score: {wake_score:.2f} / {settings.audio.wake_word_threshold:.2f}  "
+                f"Wake Score: {value:.2f} / {settings.audio.wake_word_threshold:.2f}  "
             )
         elif state == PipelineState.LISTENING:
             mode_tag = "DICTATION" if args.dictation else "LISTENING"
-            speaking_hint = "🗣️ Speaking" if rms > 200 else "👂 Listening"
+            vad_prob = value
+            prob_pct = int(vad_prob * 100)
+            speaking_hint = (
+                f"🗣️ Speaking ({prob_pct}%)"
+                if vad_prob >= settings.audio.vad_threshold
+                else f"👂 Listening ({prob_pct}%)"
+            )
             status_text = (
-                f"\r[🎙️ {mode_tag}] Mic: {meter} (RMS: {int(rms):4d}) | {speaking_hint}...  "
+                f"\r[🎙️ {mode_tag}] Mic: {meter} (RMS: {int(rms):4d}) | {speaking_hint}   "
             )
         elif state == PipelineState.PROCESSING:
             status_text = f"\r[⏳ PROCESSING] Transcribing with Whisper...{' ' * 20}"

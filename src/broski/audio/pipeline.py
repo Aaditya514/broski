@@ -199,7 +199,7 @@ class AudioPipelineCoordinator:
                 if self.on_audio_level and len(chunk) > 0:
                     rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
                     try:
-                        self.on_audio_level(rms, 0.0)
+                        self.on_audio_level(rms, _prob)
                     except (TypeError, ValueError, RuntimeError, OSError):
                         pass
 
@@ -211,15 +211,17 @@ class AudioPipelineCoordinator:
                         except (TypeError, ValueError, RuntimeError, OSError) as exc:
                             logger.error("Error in on_speech_start callback: %s", exc)
 
-                # Timeout if no speech detected within 5 seconds of wake word
+                # Timeout if no speech detected within 5 seconds of wake word (conversational only)
                 if not is_speaking:
-                    silence_after_wake += len(chunk)
-                    if silence_after_wake >= listening_timeout_samples:
-                        logger.info("No speech detected within 5 seconds. Returning to IDLE.")
-                        self._set_state(PipelineState.IDLE)
-                        was_speaking = False
-                        self.vad.reset()
-                        continue
+                    if not self._dictation_mode:
+                        silence_after_wake += len(chunk)
+                        if silence_after_wake >= listening_timeout_samples:
+                            logger.info("No speech detected within 5 seconds. Returning to IDLE.")
+                            self._set_state(PipelineState.IDLE)
+                            was_speaking = False
+                            silence_after_wake = 0
+                            self.vad.reset()
+                            continue
                 else:
                     silence_after_wake = 0
 
