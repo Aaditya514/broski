@@ -236,3 +236,94 @@ Implement the local speech-to-text transcriber using `faster-whisper` on CPU wit
 * Run full quality gate and DoD audit.
 * Merge `feat/sprint-2-audio` into `main` and push to GitHub.
 * Kick off Sprint 3 (Piper Neural Text-to-Speech & Barge-in Voice Output).
+
+---
+
+## 📅 Day 4: 2026-11-25 — Sprint 2 (Day 4 of 4): Live CLI Demo, Quality Gate, Sprint Review & Merge to Main
+
+### 🎯 Daily Objective
+Deliver the interactive live microphone testing tool (`broski-listen`), verify real-time audio detection on Windows hardware (laptop mic and Bluetooth earphones), audit the complete sensory subsystem against the Agile Definition of Done (DoD), merge `feat/sprint-2-audio` into `main`, and push the production-ready audio subsystem to GitHub.
+
+---
+
+### 🔍 1. Definition of Done (DoD) Audit
+* [x] **Branch Hygiene**: Developed exclusively on `feat/sprint-2-audio`.
+* [x] **Code Standards**: Type annotations throughout, 100% clean check via `ruff` with 0 warnings.
+* [x] **Automated Tests**: 45 automated unit tests across all sensory modules:
+  * `test_audio_capture.py` (5 tests)
+  * `test_audio_cli.py` (1 test)
+  * `test_audio_pipeline.py` (3 tests)
+  * `test_ring_buffer.py` (6 tests)
+  * `test_stt.py` (4 tests)
+  * `test_vad.py` (4 tests)
+  * `test_wakeword.py` (4 tests)
+  * `test_config.py` (7 tests)
+  * `test_database.py` (4 tests)
+  * `test_memory_store.py` (7 tests)
+* [x] **Zero Regressions**: 100% test pass rate across all 45 tests.
+* [x] **Documentation**: Daily engineering journal entries maintained in `docs/SPRINT_2_DEV_LOG.md`.
+* [x] **Hardware & Resource Limits**: Whisper strictly capped at 2 CPU threads, openWakeWord $<1.5\%$ CPU load.
+* [x] **Clean Storage & Gitignore**: Audio ring buffers, cached models (`data/models/`), and temp files strictly ignored.
+
+---
+
+### 📊 2. Sprint 2 Deliverables Summary
+1. **Audio Hardware Discovery & Stream Capture**:
+   * `src/broski/audio/capture.py`: Windows WASAPI capture stream with automatic default device binding.
+   * **Bluetooth Earphone Support**: On-the-fly numpy resampling from 48kHz/44.1kHz to standard 16kHz mono.
+2. **Lock-Free Circular Audio Ring Buffer**:
+   * `src/broski/audio/ring_buffer.py`: Pre-allocated 10-second buffer with zero heap allocations in the audio thread.
+3. **Neural Voice Activity Detection (Silero VAD)**:
+   * `src/broski/audio/vad.py`: Stateful RNN ONNX model processing 32ms frames. Distinguishes vocal speech from fan/keyboard noise and detects end-of-speech pauses ($>600\text{ ms}$).
+4. **Low-CPU Wake Word Detection (`openWakeWord`)**:
+   * `src/broski/audio/wakeword.py`: Acoustic trigger engine running on 80ms sliding windows with refractory cooldown.
+5. **Local Speech-to-Text (`faster-whisper`)**:
+   * `src/broski/audio/stt.py`: CTranslate2 INT8 quantization on CPU, capped at 2 threads.
+6. **Master Pipeline Coordinator & Interactive CLI**:
+   * `src/broski/audio/pipeline.py`: Unified state machine coordinating `IDLE -> LISTENING -> PROCESSING -> IDLE`.
+   * `src/broski/audio/cli.py`: Interactive real-time test harness (`broski-listen`) with colorized console status and dictation mode.
+
+---
+
+### 💡 3. Sprint 2 Retrospective
+
+#### What Went Well:
+* Adopting the **4-Day Natural Flow** grouped tightly-coupled audio components together, allowing seamless integration.
+* Verifying real-world hardware settings (such as the 48kHz DVD Quality microphone properties) allowed us to build robust downsampling into `capture.py` before any bugs occurred.
+* CTranslate2 INT8 execution delivered fast local transcription without triggering thermal throttling on the Tiger Lake i7-1165G7.
+
+#### Key Learning Insights:
+* Why PortAudio audio callbacks must never allocate memory or perform disk writes (preventing buffer underruns).
+* How stateful recurrent neural networks (RNNs) in ONNX preserve vocal phoneme memory across 32ms frames.
+* Why INT8 AVX2 instructions run 4x faster on modern Intel x86-64 CPUs compared to 32-bit floating point math.
+
+---
+
+### 💻 4. Commands Executed & Outputs
+```powershell
+# 1. Quality gate validation
+.\.venv\Scripts\ruff check .
+# -> All checks passed!
+
+.\.venv\Scripts\pytest -v
+# -> 45 passed in 15.31s
+
+# 2. Test CLI help
+.\.venv\Scripts\python -m broski.audio.cli --help
+
+# 3. Merge feature branch into main
+git checkout main
+git merge feat/sprint-2-audio --no-ff -m "merge: complete Sprint 2 local audio sensory subsystem"
+git push origin main
+```
+
+---
+
+### 🚀 5. Sprint 3 Roadmap (Neural Speech Synthesis & Barge-in)
+* **Goal**: Give broski a natural-sounding, local voice that speaks back through your speakers or Bluetooth earphones and can be interrupted immediately when you start talking (barge-in).
+* **Sprint 3 Milestones**:
+  1. `feat/sprint-3-tts` branch creation.
+  2. Install and configure `piper-tts` (fast local neural voice on ONNX).
+  3. Audio playback engine (`sounddevice.OutputStream`) with non-blocking audio queue.
+  4. Barge-in / interruption detector: When Silero VAD detects user speech while audio is playing, instantly cut off TTS playback.
+  5. Interactive full-duplex conversational test CLI: Speak -> Transcribe -> Broski replies via speech!
