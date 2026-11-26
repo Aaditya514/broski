@@ -12,7 +12,9 @@ from enum import Enum
 
 import numpy as np
 
+from broski.audio.barge_in import BargeInDetector
 from broski.audio.capture import AudioCaptureStream
+from broski.audio.player import AudioPlayer
 from broski.audio.ring_buffer import AudioRingBuffer
 from broski.audio.stt import WhisperTranscriber
 from broski.audio.vad import SileroVADDetector
@@ -29,6 +31,7 @@ class PipelineState(str, Enum):
     IDLE = "IDLE"  # Passively listening for wake word
     LISTENING = "LISTENING"  # Actively collecting speech via VAD
     PROCESSING = "PROCESSING"  # Transcribing captured speech segment via Whisper
+    SPEAKING = "SPEAKING"  # Active speech playback with full-duplex barge-in monitoring
 
 
 class AudioPipelineCoordinator:
@@ -42,11 +45,14 @@ class AudioPipelineCoordinator:
         on_speech_end: Callable[[], None] | None = None,
         on_transcript: Callable[[str], None] | None = None,
         on_audio_level: Callable[[float, float], None] | None = None,
+        on_barge_in: Callable[[], None] | None = None,
         capture_stream: AudioCaptureStream | None = None,
         ring_buffer: AudioRingBuffer | None = None,
         wakeword_detector: WakeWordDetector | None = None,
         vad_detector: SileroVADDetector | None = None,
         transcriber: WhisperTranscriber | None = None,
+        player: AudioPlayer | None = None,
+        barge_in_detector: BargeInDetector | None = None,
     ) -> None:
         self.settings = settings or get_settings()
 
@@ -56,6 +62,7 @@ class AudioPipelineCoordinator:
         self.on_speech_end = on_speech_end
         self.on_transcript = on_transcript
         self.on_audio_level = on_audio_level
+        self.on_barge_in = on_barge_in
 
         # Components (use provided or instantiate from settings)
         self.ring_buffer = ring_buffer or AudioRingBuffer(
@@ -80,6 +87,15 @@ class AudioPipelineCoordinator:
             model_size=self.settings.audio.whisper_model_size,
             compute_type=self.settings.audio.whisper_compute_type,
             cpu_threads=self.settings.audio.whisper_cpu_threads,
+        )
+        self.player = player
+        self.barge_in = barge_in_detector or BargeInDetector(
+            player=self.player,
+            vad=self.vad,
+            wakeword=self.wakeword,
+            min_speech_frames=self.settings.audio.barge_in_min_speech_frames,
+            rms_threshold=self.settings.audio.barge_in_rms_threshold,
+            on_barge_in=self._on_barge_in_triggered,
         )
 
         self._state = PipelineState.STOPPED
@@ -123,12 +139,15 @@ class AudioPipelineCoordinator:
         logger.info("AudioPipelineCoordinator started.")
 
     def stop(self) -> None:
-        """Stop the sensory worker thread and microphone stream."""
+        """Stop the sensory worker thread, microphone stream, and player."""
         if self.state == PipelineState.STOPPED:
             return
 
         self._stop_event.set()
         self.capture_stream.stop()
+
+        if self.player is not None and self.player.is_playing:
+            self.player.stop()
 
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2.0)
@@ -136,6 +155,38 @@ class AudioPipelineCoordinator:
 
         self._set_state(PipelineState.STOPPED)
         logger.info("AudioPipelineCoordinator stopped.")
+
+    def _on_barge_in_triggered(self) -> None:
+        """Handler invoked when user speech interrupts active playback."""
+        logger.info("Barge-in event triggered! Halting playback and transitioning to LISTENING.")
+        self._set_state(PipelineState.LISTENING)
+        self.vad.reset()
+
+        if self.on_barge_in:
+            try:
+                self.on_barge_in()
+            except (TypeError, ValueError, RuntimeError, OSError) as exc:
+                logger.error("Error in on_barge_in callback: %s", exc)
+
+        if self.on_speech_start:
+            try:
+                self.on_speech_start()
+            except (TypeError, ValueError, RuntimeError, OSError) as exc:
+                logger.error("Error in on_speech_start callback: %s", exc)
+
+    def speak(
+        self,
+        audio: np.ndarray,
+        sample_rate: int = 22050,
+        blocking: bool = False,
+    ) -> None:
+        """Play speech audio through AudioPlayer and transition pipeline to SPEAKING state."""
+        if self.player is None:
+            self.player = AudioPlayer(sample_rate=sample_rate)
+            self.barge_in.player = self.player
+
+        self._set_state(PipelineState.SPEAKING)
+        self.player.play(audio, sample_rate=sample_rate, blocking=blocking)
 
     def _process_loop(self) -> None:
         """Main processing loop running in background thread."""
@@ -252,3 +303,36 @@ class AudioPipelineCoordinator:
                         )
                         self._set_state(next_state)
                         self.vad.reset()
+
+            # ------------------------------------------------------------------
+            # 4. SPEAKING STATE: Assistant is talking, monitor for barge-in
+            # ------------------------------------------------------------------
+            elif current_state == PipelineState.SPEAKING:
+                if self.player is None or not self.player.is_playing:
+                    next_state = (
+                        PipelineState.LISTENING if self._dictation_mode else PipelineState.IDLE
+                    )
+                    self._set_state(next_state)
+                    continue
+
+                if self.ring_buffer.available_samples < vad_chunk_size:
+                    time.sleep(0.01)
+                    continue
+
+                chunk = self.ring_buffer.read_samples(vad_chunk_size)
+
+                if self.on_audio_level and len(chunk) > 0:
+                    rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+                    try:
+                        self.on_audio_level(rms, 0.0)
+                    except (TypeError, ValueError, RuntimeError, OSError):
+                        pass
+
+                if self.settings.audio.barge_in_enabled:
+                    interrupted = self.barge_in.process_chunk(chunk, is_playing=True)
+                    if interrupted:
+                        # Seed VAD with the interrupting chunk so opening speech frames are preserved
+                        self.vad.process_chunk(chunk)
+                        was_speaking = True
+                        silence_after_wake = 0
+                        continue

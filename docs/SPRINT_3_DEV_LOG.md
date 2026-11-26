@@ -186,3 +186,100 @@ Build a high-performance, non-blocking audio playback engine for broski using `s
 * Calibrate echo suppression / volume thresholds to prevent Broski's voice from triggering false barge-in when played through laptop speakers.
 * Implement full-duplex conversational coordinator linking `AudioCaptureStream`, `AudioPlayer`, `PiperSynthesizer`, and `WhisperTranscriber`.
 * Add automated unit tests for barge-in interruption.
+
+---
+
+## 📅 Day 3: 2026-11-26 — Sprint 3 (Day 3 of 4): Full-Duplex Interruption & Barge-in Detector
+
+### 🎯 Daily Objective
+Build a robust, full-duplex conversational interruption engine (`BargeInDetector`) that listens to the microphone in real time while Broski is speaking, detects user interruption via neural VAD, acoustic energy floors, or wake word triggers, silences playback in $<10$ms, and smoothly transitions the pipeline state from `SPEAKING` to `LISTENING` while preserving the user's opening words.
+
+---
+
+### 🛠️ 1. What We Built Today
+
+1. **Barge-In Detector Engine (`src/broski/audio/barge_in.py`)**:
+   * **`BargeInMode`**: Supports 3 interruption strategies:
+     * `VAD_SPEECH`: Neural VAD speech probability combined with acoustic RMS energy debouncing (ideal for headphones/earbuds).
+     * `WAKE_WORD`: Interruption triggers strictly when the user speaks the wake word (e.g. "Hey Jarvis" / "Hey Broski"), preventing acoustic echo bleed on loud external laptop speakers.
+     * `HYBRID`: Checks wake word first for immediate trigger, then applies debounced VAD speech detection (default mode).
+   * **Speech Debouncing (`min_speech_frames=3`)**:
+     * Requires 3 consecutive speech frames (~96ms at 32ms/chunk) to confirm human speech before cutting off the assistant.
+     * Decays speech counters upon quiet frames, ensuring transient noise spikes (clicks, mic bumps, coughs) do not accumulate to trigger false interruptions.
+   * **Dual Thresholding (VAD + RMS Energy Floor)**:
+     * Evaluates both Silero VAD probability ($\ge 0.5$) and root-mean-square energy ($\ge 600.0$).
+     * Rejects low-amplitude acoustic bleed from laptop speakers and quiet ambient murmurs.
+   * **Instant Output Cancellation**:
+     * Calls `player.stop()` (<0.1ms execution time) to halt audio output immediately.
+     * Enters a 500ms post-interruption cooldown (`cooldown_seconds=0.5`) to prevent duplicate triggers while the user begins speaking.
+     * Fires `on_barge_in` callback safely.
+
+2. **Full-Duplex Pipeline State Machine Integration (`src/broski/audio/pipeline.py`)**:
+   * **New State `PipelineState.SPEAKING`**: Added to `PipelineState` enum to track when Broski is vocalizing.
+   * **Speaking State Sensory Monitoring**:
+     * While in `SPEAKING`, `AudioPipelineCoordinator` continuously consumes 32ms chunks from the microphone ring buffer.
+     * Passes audio to `BargeInDetector.process_chunk(chunk, is_playing=True)`.
+     * Upon barge-in confirmation, immediately halts playback, transitions state machine from `SPEAKING` to `LISTENING`, and **seeds the triggering audio chunk directly into Silero VAD's buffer** so the opening syllable of the user's interruption is preserved for Whisper STT!
+     * When speech playback ends naturally without interruption, transitions seamlessly back to `IDLE` (or `LISTENING` if in dictation mode).
+   * **`coordinator.speak(audio, sample_rate, blocking)`**: Convenient unified method for triggering speech output and transitioning to `SPEAKING`.
+
+3. **Subsystem Exports & Configuration**:
+   * Added `barge_in_enabled`, `barge_in_min_speech_frames`, and `barge_in_rms_threshold` to `AudioConfig` in `src/broski/config.py`.
+   * Exported `BargeInDetector` and `BargeInMode` in `src/broski/audio/__init__.py`.
+
+4. **Automated Unit Tests (`tests/unit/test_barge_in.py`)**:
+   * `test_barge_in_inactive_when_player_not_playing`: Verifies detector is dormant when assistant is silent.
+   * `test_barge_in_vad_speech_debounce`: Confirms 3 consecutive speech frames trigger barge-in and stop player.
+   * `test_barge_in_frame_decay_on_quiet_gap`: Verifies quiet gaps decay counter and prevent noise accumulation.
+   * `test_barge_in_rejects_low_energy_bleed`: Verifies high VAD probability with low RMS is correctly ignored.
+   * `test_barge_in_wake_word_mode`: Tests strict wake-word interruption mode.
+   * `test_barge_in_cooldown_period`: Validates post-trigger cooldown prevents rapid re-triggering.
+   * `test_pipeline_coordinator_barge_in_transition`: Verifies state transition from `SPEAKING` to `LISTENING` and VAD reset.
+   * **Test Suite Status**: **69 / 69 tests passed in 5.89s** with 0 ruff errors!
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. Half-Duplex vs. Full-Duplex Voice Assistants
+* **Half-Duplex (Legacy/Walkie-Talkie style)**:
+  * When the machine talks, the microphone is muted.
+  * If the user wants to say "Stop" or clarify a command, they must sit in frustration until the robot finishes talking.
+* **Full-Duplex (Natural Human Conversation)**:
+  * The microphone stays open at all times.
+  * Both listening and speaking occur simultaneously.
+  * The assistant yields the floor the millisecond the user starts talking.
+
+#### B. The Acoustic Echo Problem & How We Solved It
+* When an assistant speaks through laptop speakers, the laptop microphone inevitably hears the assistant's voice!
+* In cloud systems, complex and CPU-heavy DSP Acoustic Echo Cancellation (AEC) algorithms run with double-talk detection.
+* For Broski (CPU-only, low thermal footprint):
+  1. **Headphone-First Intelligence**: With earbuds/headphones (like OnePlus Nord Buds 3), acoustic echo is physically isolated.
+  2. **Dual-Trigger Barrier**: We require both neural speech probability ($\ge 0.5$) AND an acoustic energy floor ($\text{RMS} \ge 600.0$). Speaker bleed typically has significantly lower microphone coupling energy than direct near-field human voice!
+  3. **Debounce Framing**: Requiring 3 consecutive frames (~96ms) eliminates brief echo spikes and reverberations.
+
+#### C. Preserving the First Word of an Interruption
+* A common bug in barge-in systems is "syllable swallowing": when the system detects the user's voice at $t = 100\text{ ms}$, it wipes all audio buffers and starts recording from $t = 100\text{ ms}$, causing Whisper to miss the first word (e.g. hearing "weather tomorrow" instead of "What is the weather tomorrow").
+* In Broski, when `BargeInDetector` triggers, we immediately call `vad.process_chunk(chunk)` with the triggering chunk, ensuring the very first phoneme is prepended to the incoming speech segment!
+
+---
+
+### 💻 3. Commands Executed & Outputs
+```powershell
+# 1. Run linter
+.\.venv\Scripts\ruff.exe check .
+# -> All checks passed!
+
+# 2. Run unit tests
+.\.venv\Scripts\pytest.exe -v
+# -> 69 passed in 5.89s
+```
+
+---
+
+### 🚀 4. Plan for Day 4 of Sprint 3 (End-to-End Voice Loop & Interactive CLI)
+* Build `broski-talk` interactive CLI connecting the complete voice loop:
+  * Microphones -> Wake Word ("hey jarvis") -> VAD -> Whisper STT -> Piper Neural TTS -> AudioPlayer -> Barge-in.
+* Perform live interactive smoke test with OnePlus Nord Buds 3:
+  * Speak wake word -> say query -> hear neural voice -> interrupt mid-sentence -> verify sub-10ms cancellation and seamless resumption!
+* Complete Sprint 3 wrap-up, PR, and merge to `main`.
