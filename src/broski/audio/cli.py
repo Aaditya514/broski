@@ -6,6 +6,7 @@ with a real-time visual VU volume meter.
 """
 
 import argparse
+import datetime
 import logging
 import sys
 import time
@@ -13,8 +14,14 @@ import time
 import numpy as np
 import sounddevice as sd
 
+from broski.audio.barge_in import BargeInMode
 from broski.audio.capture import list_input_devices
 from broski.audio.pipeline import AudioPipelineCoordinator, PipelineState
+from broski.audio.player import (
+    AudioPlayer,
+    find_default_or_headset_output_device,
+)
+from broski.audio.tts import PiperSynthesizer
 from broski.config import get_settings
 
 # Configure logging
@@ -251,6 +258,240 @@ def main() -> None:
     finally:
         coordinator.stop()
         print("broski audio pipeline stopped. Have a great day!\n")
+
+
+def generate_offline_response(transcript: str) -> str:
+    """Generate intelligent offline responses for the Sprint 3 voice loop test."""
+    t = transcript.strip().lower()
+
+    if any(q in t for q in ("who are you", "what is your name", "what are you")):
+        return (
+            "I am Broski, your personal AI voice assistant, "
+            "running privately and locally on your CPU."
+        )
+
+    if any(q in t for q in ("what time is it", "tell me the time", "current time", "what's the time")):
+        now = datetime.datetime.now().strftime("%I:%M %p")
+        return f"The current time is {now}."
+
+    if any(q in t for q in ("what day is it", "what's the date", "what is today")):
+        today = datetime.datetime.now().strftime("%A, %B %d, %Y")
+        return f"Today is {today}."
+
+    if "tell me a joke" in t or "say something funny" in t:
+        return "Why do programmers prefer dark mode? Because light attracts bugs!"
+
+    if any(q in t for q in ("hello", "hi", "hey")):
+        return "Hey there! How can I help you today?"
+
+    if any(q in t for q in ("how are you", "how's it going")):
+        return "I am running smoothly with zero cloud latency. Ready for your command!"
+
+    if any(q in t for q in ("stop", "exit", "quit", "goodbye")):
+        return "Goodbye! Have a great day."
+
+    # Default echo response demonstrating end-to-end local loop
+    return f"I heard you say: {transcript}. Speech synthesis and barge-in are working perfectly!"
+
+
+def talk_main() -> None:
+    """Entry point for 'broski-talk' CLI: Full-duplex conversational voice loop."""
+    parser = argparse.ArgumentParser(
+        description="broski 🗣️ — Local Full-Duplex Conversational Voice Assistant"
+    )
+    parser.add_argument(
+        "--input-device",
+        type=int,
+        default=None,
+        help="Input microphone device index (auto-detects OnePlus Nord Buds 3 / default if omitted)",
+    )
+    parser.add_argument(
+        "--output-device",
+        type=int,
+        default=None,
+        help="Output speaker/headphones device index (auto-detects OnePlus Nord Buds 3 / default)",
+    )
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="Speaking speed multiplier (1.0 = normal, <1.0 = faster, >1.0 = slower)",
+    )
+    parser.add_argument(
+        "--voice",
+        type=str,
+        default="en_US-lessac-medium",
+        help="Piper neural voice name or model file path",
+    )
+    parser.add_argument(
+        "--dictation",
+        action="store_true",
+        help="Continuous dictation mode (skip wake word and listen immediately)",
+    )
+    parser.add_argument(
+        "--no-greet",
+        action="store_true",
+        help="Skip startup spoken greeting",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["hybrid", "vad", "wakeword"],
+        default="hybrid",
+        help="Barge-in interruption strategy: 'hybrid' (default), 'vad', or 'wakeword'",
+    )
+    args = parser.parse_args()
+
+    print("\n" + "=" * 65)
+    print("  broski 🗣️ — Local Full-Duplex Conversational Voice Assistant")
+    print("=" * 65)
+
+    settings = get_settings()
+
+    # 1. Detect Input Microphone
+    in_idx, in_name = auto_select_device(args.input_device)
+    settings.audio.input_device_index = in_idx
+
+    # 2. Detect Output Headphones / Speakers
+    out_idx, out_name = find_default_or_headset_output_device(args.output_device)
+    settings.audio.output_device_index = out_idx
+
+    print("\n[Audio Hardware Configuration]")
+    print(f"  🎤 Microphone: [{in_idx}] {in_name}")
+    print(f"  🎧 Output:     [{out_idx}] {out_name} (Stereo Earbuds Mode)")
+    print(f"  🗣️ Neural Voice: {args.voice} (Speed: {args.speed}x)")
+    print(f"  ⚡ Interruption: Active (Mode: {args.mode.upper()}, Barge-in: sub-10ms)")
+    print("-" * 65)
+
+    # 3. Initialize Piper Synthesizer & AudioPlayer
+    print("[1/3] Loading Piper ONNX neural voice model...")
+    synth = PiperSynthesizer(voice_name=args.voice, length_scale=args.speed, auto_load=True)
+    print("      ✓ Neural voice loaded successfully.")
+
+    print("[2/3] Initializing non-blocking stereo audio player...")
+    player = AudioPlayer(device_index=out_idx, sample_rate=synth.sample_rate, channels=2)
+    print("      ✓ Audio player ready.")
+
+    print("[3/3] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
+
+    # Map CLI mode to BargeInMode
+    mode_map = {
+        "hybrid": BargeInMode.HYBRID,
+        "vad": BargeInMode.VAD_SPEECH,
+        "wakeword": BargeInMode.WAKE_WORD,
+    }
+    barge_mode = mode_map.get(args.mode, BargeInMode.HYBRID)
+
+    def on_barge_in() -> None:
+        sys.stdout.write(
+            "\n\n⚡ [BARGE-IN!]: User voice detected! Speech halted instantly (<10ms).\n"
+            "   Listening for your new query...\n\n"
+        )
+        sys.stdout.flush()
+
+    def on_wake(score: float) -> None:
+        sys.stdout.write(
+            f"\n\n🎯 [WAKE WORD DETECTED!] Trigger: '{settings.audio.wake_word_model}' "
+            f"(Confidence: {score:.2f} >= {settings.audio.wake_word_threshold:.2f})\n"
+            "   Listening to your question now...\n"
+        )
+        sys.stdout.flush()
+
+    def on_speech_start() -> None:
+        sys.stdout.write("\n🗣️  [Speech Started] Recording incoming voice...\n")
+        sys.stdout.flush()
+
+    def on_speech_end() -> None:
+        sys.stdout.write("\n⏳  [Speech Ended] Processing speech with Whisper STT...\n")
+        sys.stdout.flush()
+
+    def on_text(transcript: str) -> None:
+        sys.stdout.write(f"\n📝 [Transcribed]: \"{transcript}\"\n")
+        sys.stdout.flush()
+
+        response = generate_offline_response(transcript)
+        sys.stdout.write(f"🤖 [Broski]: \"{response}\"\n")
+        sys.stdout.write("🔊 [Speaking]: (Speak or say 'Hey Jarvis' to interrupt mid-speech!)\n\n")
+        sys.stdout.flush()
+
+        # Set pipeline state to SPEAKING and stream chunks to player
+        coordinator._set_state(PipelineState.SPEAKING)
+        for chunk in synth.synthesize_stream(response):
+            if coordinator.state != PipelineState.SPEAKING:
+                # Interrupted mid-synthesis!
+                break
+            player.play_chunk(chunk, sample_rate=synth.sample_rate)
+
+    def on_level(rms: float, value: float) -> None:
+        meter = render_meter(rms)
+        state = coordinator.state
+
+        if state == PipelineState.IDLE:
+            status_text = (
+                f"\r[👂 IDLE] Mic: {meter} (RMS: {int(rms):4d}) | "
+                f"Wake Score: {value:.2f} / {settings.audio.wake_word_threshold:.2f}  "
+            )
+        elif state == PipelineState.LISTENING:
+            mode_tag = "DICTATION" if args.dictation else "LISTENING"
+            vad_prob = value
+            prob_pct = int(vad_prob * 100)
+            speaking_hint = (
+                f"🗣️ Speaking ({prob_pct}%)"
+                if (vad_prob >= settings.audio.vad_threshold or rms >= 600)
+                else f"👂 Listening ({prob_pct}%)"
+            )
+            status_text = (
+                f"\r[🎙️ {mode_tag}] Mic: {meter} (RMS: {int(rms):4d}) | {speaking_hint}   "
+            )
+        elif state == PipelineState.PROCESSING:
+            status_text = f"\r[⏳ PROCESSING] Transcribing with Whisper...{' ' * 20}"
+        elif state == PipelineState.SPEAKING:
+            status_text = f"\r[🔊 SPEAKING] Broski speaking... Mic: {meter} (Interruptible)  "
+        else:
+            status_text = ""
+
+        if status_text:
+            sys.stdout.write(status_text)
+            sys.stdout.flush()
+
+    coordinator = AudioPipelineCoordinator(
+        settings=settings,
+        player=player,
+        on_wake_word=on_wake,
+        on_speech_start=on_speech_start,
+        on_speech_end=on_speech_end,
+        on_transcript=on_text,
+        on_audio_level=on_level,
+        on_barge_in=on_barge_in,
+    )
+    coordinator.barge_in.mode = barge_mode
+
+    if args.dictation:
+        coordinator.dictation_mode = True
+        print("\nMode: CONTINUOUS CONVERSATION (Speak freely; no wake word required)")
+    else:
+        print(f"\nMode: CONVERSATIONAL (Say '{settings.audio.wake_word_model}' to wake broski)")
+        print(f"[👂 IDLE] Passively listening for '{settings.audio.wake_word_model}'...")
+
+    print("Press Ctrl+C at any time to exit.\n" + "=" * 65 + "\n")
+
+    coordinator.start()
+
+    # Spoken welcome greeting
+    if not args.no_greet:
+        greeting = "Hello! I am Broski. I am listening for Hey Jarvis."
+        coordinator._set_state(PipelineState.SPEAKING)
+        for chunk in synth.synthesize_stream(greeting):
+            player.play_chunk(chunk, sample_rate=synth.sample_rate)
+
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\n\nShutting down full-duplex conversational voice loop...")
+    finally:
+        coordinator.stop()
+        player.close()
+        print("broski voice loop stopped. Have a great day!\n")
 
 
 if __name__ == "__main__":

@@ -78,6 +78,7 @@ all = [
 [project.scripts]
 broski = "broski.main:main"
 broski-listen = "broski.audio.cli:main"
+broski-talk = "broski.audio.cli:talk_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
