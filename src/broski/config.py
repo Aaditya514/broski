@@ -75,6 +75,24 @@ class AudioConfig(BaseModel):
         description="Speaking speed multiplier (1.0 = normal, <1.0 = faster, >1.0 = slower).",
     )
 
+    # Barge-in / Interruption settings
+    barge_in_enabled: bool = Field(
+        default=True,
+        description="Whether user voice activity or wake word halts active speech playback.",
+    )
+    barge_in_min_speech_frames: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Consecutive speech frames (~32ms each) required to trigger barge-in.",
+    )
+    barge_in_rms_threshold: float = Field(
+        default=600.0,
+        ge=0.0,
+        le=5000.0,
+        description="Minimum RMS audio energy threshold required during playback to trigger barge-in.",
+    )
+
     @field_validator("sample_rate")
     @classmethod
     def validate_sample_rate(cls, v: int) -> int:
