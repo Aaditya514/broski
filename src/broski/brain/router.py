@@ -86,6 +86,10 @@ class IntentRouter:
         r"^(?:please\s+)?(?:can\s+you\s+)?(?:open|launch|start|run|bring\s+up|switch\s+to)\s+(?P<app>[a-zA-Z0-9_\-\s]+?)(?:\s+for\s+me|\s+please)?$",
         re.IGNORECASE,
     )
+    _WAKE_PREFIX_RE = re.compile(
+        r"^(?:(?:hey|ok|hi)\s+)?(?:jarvis|broski)[,\s]+",
+        re.IGNORECASE,
+    )
     _REGISTER_PATH_RE = re.compile(
         r"^(?:set|register|update)\s+(?:the\s+)?(?:path|location)\s+(?:for|of)\s+(?P<app>[a-zA-Z0-9_\-\s]+?)\s+(?:to|as|=)\s+(?P<path>.+)$",
         re.IGNORECASE,
@@ -174,6 +178,8 @@ class IntentRouter:
         """Fast regex and keyword matcher for immediate command detection."""
         # Strip trailing punctuation for clean matching
         normalized = text.rstrip(".!? ")
+        # Strip leading wake words or conversational prefixes (e.g. "Hey Jarvis, ", "Jarvis, ", "Hey Broski, ")
+        normalized = self._WAKE_PREFIX_RE.sub("", normalized).strip()
 
         # 1. Match "open <app>" or "launch <app>"
         app_match = self._OPEN_APP_RE.match(normalized)

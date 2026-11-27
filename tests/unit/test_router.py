@@ -21,6 +21,9 @@ def test_router_rule_open_apps() -> None:
         ("bring up terminal", "terminal"),
         ("open notes", "obsidian"),
         ("launch music", "spotify"),
+        ("Hey Jarvis, open Obsidian.", "obsidian"),
+        ("Jarvis, launch Spotify", "spotify"),
+        ("Hey Broski, open Chrome", "chrome"),
     ]
 
     for utterance, expected_app in test_cases:
