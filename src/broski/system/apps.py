@@ -408,17 +408,17 @@ class AppLauncher:
                     except Exception as exc:  # noqa: BLE001
                         logger.debug("Failed to record launch in memory store: %s", exc)
 
-                # Natural spoken message
+                # Natural friendly bro affirmations
                 if target.display_name.startswith("Google Chrome ("):
                     prof_name = target.display_name[len("Google Chrome (") : -1].strip()
                     if prof_name.lower() in ("default", "aaditya aanand"):
-                        spoken_msg = "Sure, opening Chrome for you."
+                        spoken_msg = "Yea bro, opening Chrome right now!"
                     else:
-                        spoken_msg = f"Opening {prof_name} Chrome for you."
+                        spoken_msg = f"Yea bro, opening {prof_name} Chrome right now!"
                 elif target.display_name == "Google Chrome":
-                    spoken_msg = "Sure, opening Chrome for you."
+                    spoken_msg = "Yea bro, opening Chrome right now!"
                 else:
-                    spoken_msg = f"Opening {target.display_name}."
+                    spoken_msg = f"Opening {target.display_name} now, got you bro!"
 
                 return LaunchResult(
                     success=True,
@@ -432,7 +432,7 @@ class AppLauncher:
                 return LaunchResult(
                     success=False,
                     app_name=target.display_name,
-                    message=f"Failed to start {target.display_name}: {exc}",
+                    message=f"Couldn't start {target.display_name} bro: {exc}",
                     target_path=str(target.resolved_path),
                 )
 
@@ -446,7 +446,7 @@ class AppLauncher:
                 return LaunchResult(
                     success=True,
                     app_name=target.display_name,
-                    message=f"Opening {target.display_name}.",
+                    message=f"Opening {target.display_name} right now, got you bro!",
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to open URI '%s': %s", target.uri, exc)

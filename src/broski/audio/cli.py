@@ -273,32 +273,32 @@ def generate_offline_response(transcript: str) -> str:
 
     if any(q in t for q in ("who are you", "what is your name", "what are you")):
         return (
-            "I am Broski, your personal AI voice assistant, "
+            "I am Broski, your personal AI voice assistant and bro, "
             "running privately and locally on your CPU."
         )
 
     if any(q in t for q in ("what time is it", "tell me the time", "current time", "what's the time")):
         now = datetime.datetime.now().strftime("%I:%M %p")
-        return f"The current time is {now}."
+        return f"The current time is {now}, bro."
 
     if any(q in t for q in ("what day is it", "what's the date", "what is today")):
         today = datetime.datetime.now().strftime("%A, %B %d, %Y")
-        return f"Today is {today}."
+        return f"Today is {today}, bro."
 
     if "tell me a joke" in t or "say something funny" in t:
-        return "Why do programmers prefer dark mode? Because light attracts bugs!"
+        return "Why do programmers prefer dark mode bro? Because light attracts bugs!"
 
     if any(q in t for q in ("hello", "hi", "hey")):
-        return "Hey there! How can I help you today?"
+        return "Hey there bro! What's good? How can I help you today?"
 
     if any(q in t for q in ("how are you", "how's it going")):
-        return "I am running smoothly with zero cloud latency. Ready for your command!"
+        return "I am running smoothly with zero cloud latency, feeling sharp bro. Ready for your command!"
 
     if any(q in t for q in ("stop", "exit", "quit", "goodbye")):
-        return "Goodbye! Have a great day."
+        return "Goodbye bro! Have a great day."
 
     # Default echo response demonstrating end-to-end local loop
-    return f"I heard you say: {transcript}. Speech synthesis and barge-in are working perfectly!"
+    return f"I heard you say: {transcript}, bro. Speech synthesis and barge-in are working perfectly!"
 
 
 def talk_main() -> None:
@@ -482,13 +482,13 @@ def talk_main() -> None:
                 launch_res = app_launcher.launch(launch_query)
                 response = launch_res.message
             else:
-                response = "I recognized a command to open an application, but couldn't determine which one."
+                response = "I heard you bro, but couldn't tell which app to open."
         elif intent_res.intent == IntentType.SYSTEM_COMMAND and intent_res.action == "register_app_path":
             if intent_res.target and intent_res.payload:
                 reg_res = app_launcher.register_custom_path(intent_res.target, intent_res.payload)
                 response = reg_res.message
             else:
-                response = "I couldn't determine which application or file path to register."
+                response = "I couldn't tell which application or file path to lock in, bro."
         elif intent_res.intent == IntentType.DICTATION:
             text_to_dictate = intent_res.payload or transcript
             res = injector.inject_text(text_to_dictate)
@@ -500,9 +500,9 @@ def talk_main() -> None:
                     if res.window and res.window.title
                     else (res.window.process_name if res.window else "active window")
                 )
-                response = f"Typed into {win_target}."
+                response = f"Typed into {win_target}, got you bro!"
             else:
-                response = f"Failed to inject text: {res.message}"
+                response = f"Couldn't type that in bro: {res.message}"
         else:
             # Route conversational queries through Cloud Brain or local offline responder
             if brain_client is not None and brain_client.is_configured:

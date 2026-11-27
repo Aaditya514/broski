@@ -179,7 +179,9 @@ def test_talk_main_on_text_routes_dictation_injection() -> None:
         on_text_callback("dictate: Sprint 4 Day 3 completed")
 
         mock_injector.inject_text.assert_called_once_with("Sprint 4 Day 3 completed")
-        mock_synth.synthesize_stream.assert_called_with("Typed into Project Roadmap - Obsidian.")
+        mock_synth.synthesize_stream.assert_called_with(
+            "Typed into Project Roadmap - Obsidian, got you bro!"
+        )
 
 
 def test_talk_main_continuous_dictation_mode() -> None:
