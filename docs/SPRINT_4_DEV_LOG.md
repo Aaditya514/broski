@@ -177,7 +177,107 @@ Build an ultra-fast, two-tier Intent Router (`src/broski/brain/router.py`) and W
 
 ---
 
-### 🚀 4. Plan for Day 3 of Sprint 4 (Active Window Text Injection)
-* Implement `ActiveWindowInjector` (`src/broski/system/injector.py`) using Windows `SendInput` / `ctypes` / `pywin32`.
-* Inject transcribed text directly into whichever window currently has active focus (Obsidian note, browser form, VS Code buffer).
-* Connect dictation intent routing to real keystroke injection!
+### 🚀 4. Completed: Day 2 Milestone
+* Two-Tier Intent Router operational (sub-0.1ms Tier 1 rule matching + Tier 2 Gemini structured JSON classification).
+* Security whitelist application launcher connected to persistent SQLite memory store.
+* Voice-switched Chrome profile launching and gaming terms whitelist integration.
+
+---
+
+## 📅 Day 3: 2026-11-27 — Sprint 4 (Day 3 of 4): Active Window Text Injection & Speech Dictation
+
+### 🎯 Daily Objective
+Implement `ActiveWindowInjector` (`src/broski/system/injector.py`) using native Windows 64-bit `ctypes` (`SendInput`, `GetForegroundWindow`, and clipboard APIs). Inject transcribed speech and dictated notes directly into whichever desktop application currently holds foreground focus (Obsidian note, VS Code buffer, browser search bar, Terminal). Connect dictation intent routing and continuous dictation mode (`--dictation`) directly into the injection engine!
+
+---
+
+### 🛠️ 1. What We Built Today
+
+1. **Active Window Text Injection Engine (`src/broski/system/injector.py`)**:
+   * **Active Foreground Window Discovery**:
+     * Interrogates Windows via `user32.GetForegroundWindow()`.
+     * Inspects target title (`GetWindowTextW`) and extracts host executable name (`GetWindowThreadProcessId` + `kernel32.OpenProcess` + `QueryFullProcessImageNameW`).
+     * Returns structured `WindowInfo` metadata (HWND, title, PID, process name, validity).
+   * **Dual Complementary Injection Strategies**:
+     1. *Native Unicode Keystroke Simulation (`SendInput`)*:
+        * Constructs 40-byte 64-bit `INPUT` / `KEYBDINPUT` structures with `KEYEVENTF_UNICODE`.
+        * Automatically unpacks UTF-16 surrogate pairs for emoji symbols (e.g. 🚀, 🔥, 💡).
+        * Simulates realistic keyboard typing without touching or corrupting the user's system clipboard.
+     2. *Fast Clipboard Paste (`Ctrl+V` via `SendInput`)*:
+        * Backs up existing clipboard text with contention retries.
+        * Places new text onto Windows clipboard with `CF_UNICODETEXT` and dispatches `Ctrl+V`.
+        * Spawns an asynchronous background thread to cleanly restore the user's original clipboard content after a 150ms buffer.
+        * Zero-latency injection of long paragraphs, multiline markdown notes, and code blocks.
+   * **Heuristic Auto-Selection (`mode="auto"`)**:
+     * Phrases under 30 characters without newlines $\rightarrow$ native keystroke typing.
+     * Long text (>30 chars), multiline text, or emojis $\rightarrow$ high-speed clipboard paste.
+
+2. **Dictation Intent Integration (`src/broski/brain/router.py`)**:
+   * Enhanced `_DICTATION_RE` to capture conversational dictation commands:
+     * *"Dictate: meeting with client at 3pm"*
+     * *"Type: hello world this is a test"*
+     * *"Type out this important code snippet"*
+     * *"Write down remember to call mom"*
+     * *"Please dictate that we are launching tomorrow"*
+     * *"Insert text hello active window"*
+   * Extracts clean text payload and routes as `IntentType.DICTATION` targeting `active_window`.
+
+3. **Interactive Voice Loop Integration (`broski-talk`)**:
+   * Initialized `ActiveWindowInjector` inside `talk_main()` in `src/broski/audio/cli.py`.
+   * **Conversational Dictation**: When user says *"Type this is a test"*, broski injects into the active window, displays `✍️ [Injected]: Injected 14 characters into 'Obsidian - Notes' via keystroke.`, and confirms verbally: *"Typed into Obsidian - Notes."*
+   * **Continuous Dictation Mode (`broski-talk --dictation`)**: Every incoming Whisper transcript is injected directly into the active foreground window without spoken interruptions.
+
+4. **Automated Unit Tests**:
+   * Added `tests/unit/test_injector.py` (12 tests) verifying window discovery, keystroke simulation, emoji surrogate pair splitting, clipboard backup/restore, auto routing, explicit mode overrides, and Enter key dispatch.
+   * Added dictation intent test cases in `tests/unit/test_router.py`.
+   * Added CLI dictation lifecycle and continuous dictation tests in `tests/unit/test_talk_cli.py`.
+   * **Total Test Suite**: **124 / 124 tests passed in 4.88s** with 0 ruff errors!
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. 64-bit Windows ctypes Pointer Truncation Pitfall
+* In 64-bit Windows, handles and memory pointers (`HWND`, `HANDLE`, `HGLOBAL`, `c_void_p`) are 64 bits wide ($8\text{ bytes}$).
+* By default, `ctypes` treats undeclared function returns as 32-bit signed C integers (`c_int`).
+* When calling functions like `kernel32.GlobalLock` or `user32.GetClipboardData` without setting `restype`:
+  * A 64-bit pointer such as `0x0000000014EC1410` gets truncated to a 32-bit signed integer.
+  * Accessing the truncated pointer immediately triggers `OSError: exception: access violation`!
+* We explicitly typed all 64-bit function signatures:
+  * `kernel32.GlobalAlloc.restype = wintypes.HGLOBAL`
+  * `kernel32.GlobalLock.restype = ctypes.c_void_p`
+  * `user32.GetClipboardData.restype = wintypes.HANDLE`
+  * `user32.GetForegroundWindow.restype = wintypes.HWND`
+* Furthermore, when `wintypes.HWND` is NULL (`0`), `ctypes` converts it to Python `None`. Safe casting `raw = user32.GetForegroundWindow(); hwnd = int(raw) if raw else 0` avoids `TypeError` when no GUI window has foreground focus.
+
+#### B. Keystroke vs. Clipboard Paste Trade-offs
+* **Keystroke Simulation (`SendInput`)**:
+  * *Pros*: Completely transparent; does not alter clipboard history.
+  * *Cons*: Sending 200 characters character-by-character can take several hundred milliseconds, and rapid key events can be dropped if the receiving application's UI thread is momentarily lagging.
+* **Clipboard Paste (`Ctrl+V`)**:
+  * *Pros*: Instantaneous for documents of any size; perfectly handles unicode, emojis, multiline indentation, and special characters.
+  * *Cons*: Can overwrite whatever text the user previously copied.
+* **The Hybrid Solution**:
+  * By default, auto mode uses keystroke simulation for short one-liners and clipboard paste for long text.
+  * In clipboard mode, we save the prior clipboard, paste, and asynchronously restore the user's prior clipboard in a background thread after $150\text{ ms}$, delivering the best of both worlds!
+
+---
+
+### 💻 3. Commands Executed & Outputs
+```powershell
+# 1. Ran full quality gate
+.\.venv\Scripts\ruff.exe check .
+# -> All checks passed!
+
+# 2. Ran full unit test suite
+.\.venv\Scripts\pytest.exe -v
+# -> 124 passed in 4.88s
+```
+
+---
+
+### 🚀 4. Plan for Day 4 of Sprint 4 (Disambiguation & Full-Duplex Voice Hardening)
+* Implement contextual disambiguation with Gemini for multi-step or ambiguous user queries.
+* Finalize Sprint 4 end-to-end voice benchmark (wake word $\rightarrow$ STT $\rightarrow$ intent router $\rightarrow$ injection / app launch / Gemini response $\rightarrow$ Piper TTS).
+* Review and prepare for Sprint 5 (Obsidian Local REST API & Chrome CDP Browser Automation).
+

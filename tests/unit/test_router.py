@@ -44,6 +44,10 @@ def test_router_rule_dictation() -> None:
         ("type: hello world this is a test", "hello world this is a test"),
         ("take a note: buy coffee beans", "buy coffee beans"),
         ("write: draft message to team", "draft message to team"),
+        ("type out this important code snippet", "this important code snippet"),
+        ("write down remember to call mom", "remember to call mom"),
+        ("please dictate that we are launching tomorrow", "we are launching tomorrow"),
+        ("insert text hello active window", "hello active window"),
     ]
 
     for utterance, expected_payload in test_cases:

@@ -140,3 +140,84 @@ def test_talk_main_on_text_routes_system_command() -> None:
         mock_launcher.launch.assert_called_once_with("obsidian")
         mock_synth.synthesize_stream.assert_called_with("Opening Obsidian.")
 
+
+def test_talk_main_on_text_routes_dictation_injection() -> None:
+    """Verify that dictation command routes through ActiveWindowInjector."""
+    with (
+        patch("sys.argv", ["broski-talk", "--no-greet"]),
+        patch(
+            "broski.audio.cli.list_input_devices",
+            return_value=[{"index": 0, "name": "Mic", "channels": 1, "default_samplerate": 16000, "hostapi": 0, "is_default": True, "is_headset": False}],
+        ),
+        patch("broski.audio.cli.find_default_or_headset_output_device", return_value=(0, "Speaker")),
+        patch("broski.audio.cli.PiperSynthesizer") as mock_synth_cls,
+        patch("broski.audio.cli.AudioPlayer"),
+        patch("broski.audio.cli.AudioPipelineCoordinator") as mock_coord_cls,
+        patch("broski.audio.cli.ActiveWindowInjector") as mock_injector_cls,
+        patch("time.sleep", side_effect=KeyboardInterrupt),
+    ):
+        mock_synth = MagicMock()
+        mock_synth.sample_rate = 22050
+        mock_synth.synthesize_stream.return_value = []
+        mock_synth_cls.return_value = mock_synth
+
+        mock_injector = MagicMock()
+        mock_win = MagicMock()
+        mock_win.title = "Project Roadmap - Obsidian"
+        mock_inj_res = MagicMock()
+        mock_inj_res.success = True
+        mock_inj_res.window = mock_win
+        mock_inj_res.message = "Injected 25 characters into 'Project Roadmap - Obsidian'."
+        mock_injector.inject_text.return_value = mock_inj_res
+        mock_injector_cls.return_value = mock_injector
+
+        talk_main()
+
+        coord_kwargs = mock_coord_cls.call_args.kwargs
+        on_text_callback = coord_kwargs["on_transcript"]
+
+        on_text_callback("dictate: Sprint 4 Day 3 completed")
+
+        mock_injector.inject_text.assert_called_once_with("Sprint 4 Day 3 completed")
+        mock_synth.synthesize_stream.assert_called_with("Typed into Project Roadmap - Obsidian.")
+
+
+def test_talk_main_continuous_dictation_mode() -> None:
+    """Verify that in --dictation mode, incoming speech is injected directly without synthesis."""
+    with (
+        patch("sys.argv", ["broski-talk", "--dictation", "--no-greet"]),
+        patch(
+            "broski.audio.cli.list_input_devices",
+            return_value=[{"index": 0, "name": "Mic", "channels": 1, "default_samplerate": 16000, "hostapi": 0, "is_default": True, "is_headset": False}],
+        ),
+        patch("broski.audio.cli.find_default_or_headset_output_device", return_value=(0, "Speaker")),
+        patch("broski.audio.cli.PiperSynthesizer") as mock_synth_cls,
+        patch("broski.audio.cli.AudioPlayer"),
+        patch("broski.audio.cli.AudioPipelineCoordinator") as mock_coord_cls,
+        patch("broski.audio.cli.ActiveWindowInjector") as mock_injector_cls,
+        patch("time.sleep", side_effect=KeyboardInterrupt),
+    ):
+        mock_synth = MagicMock()
+        mock_synth.sample_rate = 22050
+        mock_synth_cls.return_value = mock_synth
+
+        mock_injector = MagicMock()
+        mock_inj_res = MagicMock()
+        mock_inj_res.success = True
+        mock_inj_res.message = "Injected text directly."
+        mock_injector.inject_text.return_value = mock_inj_res
+        mock_injector_cls.return_value = mock_injector
+
+        talk_main()
+
+        coord_kwargs = mock_coord_cls.call_args.kwargs
+        on_text_callback = coord_kwargs["on_transcript"]
+
+        # Call with normal speech
+        on_text_callback("This should be injected immediately")
+
+        mock_injector.inject_text.assert_called_once_with("This should be injected immediately", enter_after=False)
+        # Should not synthesize speech to avoid disrupting dictation flow
+        mock_synth.synthesize_stream.assert_not_called()
+
+

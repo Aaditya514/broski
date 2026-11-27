@@ -28,6 +28,7 @@ from broski.brain.router import IntentRouter, IntentType
 from broski.config import get_settings
 from broski.memory.store import MemoryStore
 from broski.system.apps import AppLauncher
+from broski.system.injector import ActiveWindowInjector
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -417,8 +418,10 @@ def talk_main() -> None:
         logger.debug("Failed to initialize memory store: %s", exc)
 
     app_launcher = AppLauncher(store=app_store)
+    injector = ActiveWindowInjector()
     intent_router = IntentRouter(app_launcher=app_launcher, brain_client=brain_client)
     print("      ✓ Intent Router & App Launcher initialized with SQLite catalog.")
+    print("      ✓ Active Window Text Injector ready.")
 
     print("[4/4] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
 
@@ -457,6 +460,13 @@ def talk_main() -> None:
         sys.stdout.write(f"\n📝 [Transcribed]: \"{transcript}\"\n")
         sys.stdout.flush()
 
+        # If continuous dictation mode is active, inject directly into active window
+        if args.dictation:
+            res = injector.inject_text(transcript, enter_after=False)
+            sys.stdout.write(f"✍️  [Injected]: {res.message}\n\n")
+            sys.stdout.flush()
+            return
+
         # 1. Classify intent through Two-Tier Intent Router
         intent_res = intent_router.route(transcript)
         sys.stdout.write(
@@ -481,7 +491,18 @@ def talk_main() -> None:
                 response = "I couldn't determine which application or file path to register."
         elif intent_res.intent == IntentType.DICTATION:
             text_to_dictate = intent_res.payload or transcript
-            response = f"Dictating into active window: {text_to_dictate}"
+            res = injector.inject_text(text_to_dictate)
+            sys.stdout.write(f"✍️  [Injected]: {res.message}\n")
+            sys.stdout.flush()
+            if res.success:
+                win_target = (
+                    res.window.title
+                    if res.window and res.window.title
+                    else (res.window.process_name if res.window else "active window")
+                )
+                response = f"Typed into {win_target}."
+            else:
+                response = f"Failed to inject text: {res.message}"
         else:
             # Route conversational queries through Cloud Brain or local offline responder
             if brain_client is not None and brain_client.is_configured:

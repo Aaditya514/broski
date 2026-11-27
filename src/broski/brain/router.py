@@ -103,7 +103,7 @@ class IntentRouter:
         re.IGNORECASE,
     )
     _DICTATION_RE = re.compile(
-        r"^(?:dictate|type|write|insert\s+note|take\s+a\s+note)[:\s]+(?P<text>.+)$",
+        r"^(?:(?:please\s+)?(?:can\s+you\s+)?(?:dictate(?:\s+that)?|type(?:\s+out)?|write(?:\s+down)?|insert(?:\s+note|\s+text)?|take\s+a\s+note))[:\s]+(?P<text>.+)$",
         re.IGNORECASE,
     )
 

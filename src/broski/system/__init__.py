@@ -11,13 +11,23 @@ from broski.system.browsers import (
     ChromeProfile,
     ChromeProfileManager,
 )
+from broski.system.injector import (
+    ActiveWindowInjector,
+    InjectionMode,
+    InjectionResult,
+    WindowInfo,
+)
 
 __all__ = [
     "WHITELIST_APPS",
+    "ActiveWindowInjector",
     "AppDefinition",
     "AppLaunchTarget",
     "AppLauncher",
     "ChromeProfile",
     "ChromeProfileManager",
+    "InjectionMode",
+    "InjectionResult",
     "LaunchResult",
+    "WindowInfo",
 ]
