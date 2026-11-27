@@ -192,7 +192,7 @@ class IntentRouter:
                     action="open_app",
                     target=str(app_def.id),
                     confidence=1.0,
-                    payload=str(app_def.name),
+                    payload=app_candidate,
                     raw_query=text,
                     source="rule",
                 )

@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from broski.system.browsers import ChromeProfileManager
+
 if TYPE_CHECKING:
     from broski.memory.store import MemoryStore
 
@@ -159,9 +161,11 @@ class AppLauncher:
         self,
         whitelist: dict[str, AppDefinition] | None = None,
         store: MemoryStore | None = None,
+        chrome_manager: ChromeProfileManager | None = None,
     ) -> None:
         self.whitelist: dict[str, AppDefinition] = whitelist or WHITELIST_APPS
         self.store = store
+        self.chrome_manager = chrome_manager or ChromeProfileManager()
 
     def _run_async(self, coro: Coroutine[Any, Any, Any] | Any) -> Any:
         """Execute an asynchronous coroutine safely from synchronous contexts."""
@@ -206,6 +210,12 @@ class AppLauncher:
             for alias in app.aliases:
                 if normalized in alias or alias in normalized:
                     return app
+
+        # 4. Check if query refers to a specific Chrome profile (e.g. "college chrome", "ghost chrome")
+        if self.chrome_manager is not None:
+            matched_profile = self.chrome_manager.find_profile(normalized)
+            if matched_profile is not None:
+                return self.whitelist.get("chrome")
 
         return None
 
@@ -269,11 +279,26 @@ class AppLauncher:
 
         # 4. If an executable binary was found
         if resolved_path is not None:
+            launch_args = list(app_def.default_args)
+            display_name = app_def.name
+
+            # Special handling for Chrome profiles: launch directly into user account
+            if app_def.id == "chrome" and self.chrome_manager is not None:
+                matched_profile = self.chrome_manager.find_profile(query)
+                if matched_profile is not None:
+                    launch_args = self.chrome_manager.get_profile_args(matched_profile)
+                    display_name = f"Google Chrome ({matched_profile.name})"
+                else:
+                    # Default to primary profile if none explicitly requested
+                    default_prof = self.chrome_manager.find_profile("default") or self.chrome_manager.find_profile("college")
+                    if default_prof is not None:
+                        launch_args = self.chrome_manager.get_profile_args(default_prof)
+
             return AppLaunchTarget(
                 app_id=app_def.id,
-                display_name=app_def.name,
+                display_name=display_name,
                 resolved_path=resolved_path,
-                args=list(app_def.default_args),
+                args=launch_args,
             )
 
         # 5. Fallback to protocol URI if configured (e.g. spotify:, obsidian://)

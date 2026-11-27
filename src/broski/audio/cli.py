@@ -458,8 +458,9 @@ def talk_main() -> None:
 
         response: str
         if intent_res.intent == IntentType.SYSTEM_COMMAND and intent_res.action == "open_app":
-            if intent_res.target:
-                launch_res = app_launcher.launch(intent_res.target)
+            launch_query = intent_res.payload or intent_res.target
+            if launch_query:
+                launch_res = app_launcher.launch(launch_query)
                 response = launch_res.message
             else:
                 response = "I recognized a command to open an application, but couldn't determine which one."

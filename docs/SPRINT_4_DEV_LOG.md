@@ -122,8 +122,9 @@ Build an ultra-fast, two-tier Intent Router (`src/broski/brain/router.py`) and W
 4. **Automated Unit Tests**:
    * Added `tests/unit/test_apps.py` (13 tests) verifying whitelist gating, path discovery, protocol fallback, custom SQLite path learning, and execution mocking.
    * Added `tests/unit/test_router.py` (8 tests) verifying rule matching, path registration commands, dictation extraction, LLM structured classification, and offline fallback.
+   * Added `tests/unit/test_browsers.py` (5 tests) verifying Chrome profile discovery, alias matching, and command-line flag generation.
    * Added CLI integration test in `tests/unit/test_talk_cli.py`.
-   * **Total Test Suite**: **105 / 105 tests passed in 16.96s** with 0 ruff errors!
+   * **Total Test Suite**: **110 / 110 tests passed in 4.68s** with 0 ruff errors!
 
 5. **Persistent Custom Application Path Learning (SQLite Catalog Integration)**:
    * Connected `MemoryStore` (`installed_apps` table in SQLite) directly into `AppLauncher`.
@@ -131,6 +132,17 @@ Build an ultra-fast, two-tier Intent Router (`src/broski/brain/router.py`) and W
    * Validates target against the security whitelist and verifies the file exists on disk before persisting.
    * `AppLauncher.resolve()` prioritizes user-configured SQLite paths over default common paths.
    * Automatically records launch statistics (`last_launched` timestamp and `launch_count`) on every launch.
+
+6. **Voice-Driven Google Chrome Profile Switching (`src/broski/system/browsers.py`)**:
+   * **The Multi-Profile Problem**: When a user has multiple Google accounts, opening Chrome triggers the modal Profile Picker dialog ("Who's using Chrome?").
+   * **Direct Profile Launching**: Built `ChromeProfileManager` to dynamically read `%LOCALAPPDATA%\Google\Chrome\User Data\Local State`, extract account metadata, and pass `--profile-directory="<dir>"` to Chrome.
+   * **Voice Triggers**:
+     * *"Open College Chrome"* / *"Open KIIT Chrome"* $\rightarrow$ launches `Default` (`22052521@kiit.ac.in`) directly.
+     * *"Open Personal Chrome"* $\rightarrow$ launches `Profile 17` (`aanandaaditya2004@gmail.com`) directly.
+     * *"Open Ghost Chrome"* $\rightarrow$ launches `Profile 4` (`ghostrider121322@gmail.com`) directly.
+     * *"Open Jaya Chrome"* $\rightarrow$ launches `Profile 20` directly.
+     * *"Open Nandinee Chrome"* $\rightarrow$ launches `Profile 21` directly.
+     * *"Open Chrome"* $\rightarrow$ defaults cleanly to primary profile, bypassing the Profile Picker popup!
 
 ---
 
@@ -160,7 +172,7 @@ Build an ultra-fast, two-tier Intent Router (`src/broski/brain/router.py`) and W
 
 # 2. Ran full unit test suite
 .\.venv\Scripts\pytest.exe -v
-# -> 105 passed in 16.96s
+# -> 110 passed in 4.68s
 ```
 
 ---
