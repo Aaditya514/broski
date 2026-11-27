@@ -408,10 +408,22 @@ class AppLauncher:
                     except Exception as exc:  # noqa: BLE001
                         logger.debug("Failed to record launch in memory store: %s", exc)
 
+                # Natural spoken message
+                if target.display_name.startswith("Google Chrome ("):
+                    prof_name = target.display_name[len("Google Chrome (") : -1].strip()
+                    if prof_name.lower() in ("default", "aaditya aanand"):
+                        spoken_msg = "Sure, opening Chrome for you."
+                    else:
+                        spoken_msg = f"Opening {prof_name} Chrome for you."
+                elif target.display_name == "Google Chrome":
+                    spoken_msg = "Sure, opening Chrome for you."
+                else:
+                    spoken_msg = f"Opening {target.display_name}."
+
                 return LaunchResult(
                     success=True,
                     app_name=target.display_name,
-                    message=f"Opening {target.display_name}.",
+                    message=spoken_msg,
                     target_path=str(target.resolved_path),
                     pid=proc.pid,
                 )
