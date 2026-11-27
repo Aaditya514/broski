@@ -98,3 +98,45 @@ def test_talk_main_mocked_lifecycle() -> None:
         # Check clean shutdown
         mock_coord.stop.assert_called_once()
         mock_player.close.assert_called_once()
+
+
+def test_talk_main_on_text_routes_system_command() -> None:
+    """Verify that incoming transcript triggers IntentRouter and AppLauncher."""
+    with (
+        patch("sys.argv", ["broski-talk", "--no-greet"]),
+        patch("broski.audio.cli.list_input_devices", return_value=[{"index": 0, "name": "Mic", "channels": 1, "default_samplerate": 16000, "hostapi": 0, "is_default": True, "is_headset": False}]),
+        patch("broski.audio.cli.find_default_or_headset_output_device", return_value=(0, "Speaker")),
+        patch("broski.audio.cli.PiperSynthesizer") as mock_synth_cls,
+        patch("broski.audio.cli.AudioPlayer"),
+        patch("broski.audio.cli.AudioPipelineCoordinator") as mock_coord_cls,
+        patch("broski.audio.cli.AppLauncher") as mock_launcher_cls,
+        patch("time.sleep", side_effect=KeyboardInterrupt),
+    ):
+        mock_synth = MagicMock()
+        mock_synth.sample_rate = 22050
+        mock_synth.synthesize_stream.return_value = []
+        mock_synth_cls.return_value = mock_synth
+
+        mock_launcher = MagicMock()
+        mock_app_def = MagicMock()
+        mock_app_def.id = "obsidian"
+        mock_app_def.name = "Obsidian"
+        mock_launcher.find_app_definition.return_value = mock_app_def
+
+        mock_launch_res = MagicMock()
+        mock_launch_res.message = "Opening Obsidian."
+        mock_launcher.launch.return_value = mock_launch_res
+        mock_launcher_cls.return_value = mock_launcher
+
+        talk_main()
+
+        # Extract the on_transcript callback
+        coord_kwargs = mock_coord_cls.call_args.kwargs
+        on_text_callback = coord_kwargs["on_transcript"]
+
+        # Call on_text with an open command
+        on_text_callback("open obsidian")
+
+        mock_launcher.launch.assert_called_once_with("obsidian")
+        mock_synth.synthesize_stream.assert_called_with("Opening Obsidian.")
+

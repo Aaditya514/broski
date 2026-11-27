@@ -23,7 +23,10 @@ from broski.audio.player import (
 )
 from broski.audio.tts import PiperSynthesizer
 from broski.brain.client import GeminiBrainClient
+from broski.brain.prompts import clean_for_speech
+from broski.brain.router import IntentRouter, IntentType
 from broski.config import get_settings
+from broski.system.apps import AppLauncher
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -383,7 +386,7 @@ def talk_main() -> None:
     player = AudioPlayer(device_index=out_idx, sample_rate=synth.sample_rate, channels=2)
     print("      ✓ Audio player ready.")
 
-    print("[3/4] Initializing Gemini Cloud Brain reasoning engine...")
+    print("[3/4] Initializing Gemini Cloud Brain reasoning engine & Intent Router...")
     brain_client: GeminiBrainClient | None = None
     try:
         brain_client = GeminiBrainClient()
@@ -394,6 +397,10 @@ def talk_main() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.debug("Failed to initialize Gemini brain client: %s", exc)
         print("      ⚠ Cloud Brain offline; using local responder.")
+
+    app_launcher = AppLauncher()
+    intent_router = IntentRouter(app_launcher=app_launcher, brain_client=brain_client)
+    print("      ✓ Intent Router & App Launcher initialized (Obsidian, Spotify, Chrome, etc.).")
 
     print("[4/4] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
 
@@ -432,23 +439,45 @@ def talk_main() -> None:
         sys.stdout.write(f"\n📝 [Transcribed]: \"{transcript}\"\n")
         sys.stdout.flush()
 
-        # Route through Cloud Brain if available, or fall back to offline responder
-        if brain_client is not None and brain_client.is_configured:
-            try:
-                response = brain_client.chat(transcript)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Cloud brain error: %s. Falling back to local responder.", exc)
-                response = generate_offline_response(transcript)
-        else:
-            response = generate_offline_response(transcript)
+        # 1. Classify intent through Two-Tier Intent Router
+        intent_res = intent_router.route(transcript)
+        sys.stdout.write(
+            f"🧭 [Intent]: {intent_res.intent.value.upper()} "
+            f"(Action: {intent_res.action or 'none'}, Target: {intent_res.target or 'none'}, Source: {intent_res.source})\n"
+        )
+        sys.stdout.flush()
 
-        sys.stdout.write(f"🤖 [Broski]: \"{response}\"\n")
+        response: str
+        if intent_res.intent == IntentType.SYSTEM_COMMAND and intent_res.action == "open_app":
+            if intent_res.target:
+                launch_res = app_launcher.launch(intent_res.target)
+                response = launch_res.message
+            else:
+                response = "I recognized a command to open an application, but couldn't determine which one."
+        elif intent_res.intent == IntentType.DICTATION:
+            text_to_dictate = intent_res.payload or transcript
+            response = f"Dictating into active window: {text_to_dictate}"
+        else:
+            # Route conversational queries through Cloud Brain or local offline responder
+            if brain_client is not None and brain_client.is_configured:
+                try:
+                    response = brain_client.chat(transcript)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Cloud brain error: %s. Falling back to local responder.", exc)
+                    response = generate_offline_response(transcript)
+            else:
+                response = generate_offline_response(transcript)
+
+        # Sanitize speech output to strip markdown formatting before TTS
+        clean_response = clean_for_speech(response)
+
+        sys.stdout.write(f"🤖 [Broski]: \"{clean_response}\"\n")
         sys.stdout.write("🔊 [Speaking]: (Speak or say 'Hey Jarvis' to interrupt mid-speech!)\n\n")
         sys.stdout.flush()
 
         # Set pipeline state to SPEAKING and stream chunks to player
         coordinator._set_state(PipelineState.SPEAKING)
-        for chunk in synth.synthesize_stream(response):
+        for chunk in synth.synthesize_stream(clean_response):
             if coordinator.state != PipelineState.SPEAKING:
                 # Interrupted mid-synthesis!
                 break
