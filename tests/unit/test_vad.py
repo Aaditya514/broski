@@ -69,7 +69,36 @@ def test_vad_speech_segmentation_lifecycle() -> None:
         prob, is_speaking, finished = vad.process_chunk(silent_frame)
         assert is_speaking is False
         assert finished is not None
-        # Finished segment should contain speech_frame + 2 silent_frames = 1536 samples
-        assert len(finished) == 1536
+        # Finished segment contains 1 pre-roll frame + 1 speech frame + 2 silent frames = 2048 samples
+        assert len(finished) == 2048
     finally:
         vad.get_speech_probability = orig_prob_func
+
+
+def test_vad_pre_roll_preservation() -> None:
+    """Verify pre-roll buffer prepends audio before speech onset to prevent clipping."""
+    vad = SileroVADDetector(threshold=0.5, silence_duration_ms=64, pre_roll_duration_ms=100)
+
+    # Pre-roll chunk with distinct value
+    pre_chunk = np.ones(512, dtype=np.int16) * 100
+    vad.get_speech_probability = lambda chunk: 0.05  # type: ignore[method-assign]
+    vad.process_chunk(pre_chunk)
+    assert vad.is_speaking is False
+
+    # Speech chunk with distinct value
+    speech_chunk = np.ones(512, dtype=np.int16) * 2000
+    vad.get_speech_probability = lambda chunk: 0.95  # type: ignore[method-assign]
+    vad.process_chunk(speech_chunk)
+    assert vad.is_speaking is True
+
+    # 2 silent chunks to finish segment
+    silent_chunk = np.zeros(512, dtype=np.int16)
+    vad.get_speech_probability = lambda chunk: 0.05  # type: ignore[method-assign]
+    vad.process_chunk(silent_chunk)
+    _, _, finished = vad.process_chunk(silent_chunk)
+
+    assert finished is not None
+    # Pre-roll values (100) should be at the start of the finished segment!
+    assert finished[0] == 100
+    # Followed by speech values (2000)
+    assert finished[512] == 2000

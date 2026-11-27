@@ -324,6 +324,12 @@ def talk_main() -> None:
         help="Piper neural voice name or model file path",
     )
     parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Whisper model size ('tiny.en', 'base.en', 'small.en') (default: from settings)",
+    )
+    parser.add_argument(
         "--dictation",
         action="store_true",
         help="Continuous dictation mode (skip wake word and listen immediately)",
@@ -355,9 +361,13 @@ def talk_main() -> None:
     out_idx, out_name = find_default_or_headset_output_device(args.output_device)
     settings.audio.output_device_index = out_idx
 
+    if args.model:
+        settings.audio.whisper_model_size = args.model
+
     print("\n[Audio Hardware Configuration]")
-    print(f"  🎤 Microphone: [{in_idx}] {in_name}")
-    print(f"  🎧 Output:     [{out_idx}] {out_name} (Stereo Earbuds Mode)")
+    print(f"  🎤 Microphone:   [{in_idx}] {in_name}")
+    print(f"  🎧 Output:       [{out_idx}] {out_name} (Stereo Earbuds Mode)")
+    print(f"  🧠 Whisper STT:  {settings.audio.whisper_model_size} (CPU INT8)")
     print(f"  🗣️ Neural Voice: {args.voice} (Speed: {args.speed}x)")
     print(f"  ⚡ Interruption: Active (Mode: {args.mode.upper()}, Barge-in: sub-10ms)")
     print("-" * 65)

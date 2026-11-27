@@ -4,6 +4,7 @@ Processes 16kHz audio chunks (32ms / 512 samples), calculates speech probability
 filters out background noise, and detects end-of-speech silence pauses.
 """
 
+import collections
 import logging
 from pathlib import Path
 
@@ -51,11 +52,13 @@ class SileroVADDetector:
         threshold: float = 0.5,
         silence_duration_ms: int = 600,
         sample_rate: int = 16000,
+        pre_roll_duration_ms: int = 250,
     ) -> None:
         self.threshold = threshold
         self.silence_duration_ms = silence_duration_ms
         self.sample_rate = sample_rate
         self.chunk_size = 512  # 512 samples @ 16kHz = 32ms
+        self.pre_roll_duration_ms = pre_roll_duration_ms
 
         self.model_path = Path(model_path) if model_path else find_silero_model_path()
         self._session: ort.InferenceSession | None = None
@@ -68,6 +71,10 @@ class SileroVADDetector:
             self.sample_rate * (self.silence_duration_ms / 1000.0)
         )
         self._speech_buffer: list[np.ndarray] = []
+        max_pre_roll_chunks = max(1, int(self.pre_roll_duration_ms / 32))
+        self._pre_roll_chunks: collections.deque[np.ndarray] = collections.deque(
+            maxlen=max_pre_roll_chunks
+        )
 
     def _init_session(self) -> None:
         """Lazily initialize ONNX runtime inference session with CPU optimization."""
@@ -109,6 +116,7 @@ class SileroVADDetector:
         self.is_speaking = False
         self._silent_samples_accumulated = 0
         self._speech_buffer.clear()
+        self._pre_roll_chunks.clear()
 
     def get_speech_probability(self, chunk: np.ndarray) -> float:
         """Run single 512-sample (32ms) frame through Silero VAD and return probability [0.0, 1.0]."""
@@ -177,8 +185,13 @@ class SileroVADDetector:
 
         if is_speech_frame:
             # User is speaking
-            self.is_speaking = True
-            self._silent_samples_accumulated = 0
+            if not self.is_speaking:
+                self.is_speaking = True
+                self._silent_samples_accumulated = 0
+                # Prepend pre-roll buffer so the opening consonant/word is never cut off!
+                self._speech_buffer.extend(self._pre_roll_chunks)
+                self._pre_roll_chunks.clear()
+
             self._speech_buffer.append(chunk_int16)
         else:
             # Silence or ambient noise
@@ -195,5 +208,8 @@ class SileroVADDetector:
                     self._speech_buffer.clear()
                     self._silent_samples_accumulated = 0
                     self.reset()
+            else:
+                # Keep rolling buffer of recent audio while idle
+                self._pre_roll_chunks.append(chunk_int16)
 
         return prob, self.is_speaking, finished_segment

@@ -99,12 +99,25 @@ class WhisperTranscriber:
         if len(audio_samples) < 1600:
             return ""
 
+        # Dynamic Peak Gain Normalization
+        # Boost quiet microphone input (e.g. Bluetooth earphones) to Whisper's optimal dynamic range
+        peak = float(np.max(np.abs(audio_samples)))
+        if peak > 1e-4:
+            audio_samples = (audio_samples / peak) * 0.95
+
+        default_prompt = (
+            "Broski, a Windows AI desktop voice assistant. Commands: open Obsidian, launch Spotify, "
+            "Discord, Chrome, what time is it, tell me a joke, summarize notes, write code."
+        )
+
         # Silero VAD has already segmented the speech, so vad_filter can remain False
         segments, _info = self._model.transcribe(
             audio_samples,
             beam_size=beam_size,
             language=language,
             vad_filter=False,
+            condition_on_previous_text=False,
+            initial_prompt=default_prompt,
         )
 
         # Collect segment texts
