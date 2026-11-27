@@ -16,7 +16,7 @@ from broski.config import (
 
 def test_default_settings(tmp_path: Path) -> None:
     """Verify default settings values match architectural specifications."""
-    settings = Settings(data_dir=tmp_path / "data")
+    settings = Settings(data_dir=tmp_path / "data", _env_file=None)
 
     # Audio defaults
     assert settings.audio.sample_rate == 16000
@@ -27,7 +27,7 @@ def test_default_settings(tmp_path: Path) -> None:
     assert settings.audio.whisper_cpu_threads == 2
 
     # Brain defaults
-    assert settings.brain.model == "gemini-2.5-flash"
+    assert settings.brain.model == "gemini-3.1-flash-lite"
     assert settings.brain.api_key is None
 
     # Security defaults

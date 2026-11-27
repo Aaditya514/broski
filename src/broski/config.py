@@ -110,7 +110,7 @@ class BrainConfig(BaseModel):
         description="Google Gemini API key. If omitted, cloud reasoning is disabled.",
     )
     model: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-3.1-flash-lite",
         description="Default Gemini model identifier for conversational and tool routing.",
     )
     temperature: float = Field(
@@ -197,7 +197,7 @@ class Settings(BaseSettings):
 
     # Top-level direct mappings for environment variables
     gemini_api_key: SecretStr | None = Field(default=None)
-    gemini_model: str = Field(default="gemini-2.5-flash")
+    gemini_model: str = Field(default="gemini-3.1-flash-lite")
     gemini_temperature: float = Field(default=0.7)
 
     audio_sample_rate: int = Field(default=16000)

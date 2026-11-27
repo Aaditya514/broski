@@ -22,10 +22,12 @@ from broski.audio.player import (
     find_default_or_headset_output_device,
 )
 from broski.audio.tts import PiperSynthesizer
+from broski.brain.client import GeminiBrainClient
 from broski.config import get_settings
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def print_banner() -> None:
@@ -373,15 +375,27 @@ def talk_main() -> None:
     print("-" * 65)
 
     # 3. Initialize Piper Synthesizer & AudioPlayer
-    print("[1/3] Loading Piper ONNX neural voice model...")
+    print("[1/4] Loading Piper ONNX neural voice model...")
     synth = PiperSynthesizer(voice_name=args.voice, length_scale=args.speed, auto_load=True)
     print("      ✓ Neural voice loaded successfully.")
 
-    print("[2/3] Initializing non-blocking stereo audio player...")
+    print("[2/4] Initializing non-blocking stereo audio player...")
     player = AudioPlayer(device_index=out_idx, sample_rate=synth.sample_rate, channels=2)
     print("      ✓ Audio player ready.")
 
-    print("[3/3] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
+    print("[3/4] Initializing Gemini Cloud Brain reasoning engine...")
+    brain_client: GeminiBrainClient | None = None
+    try:
+        brain_client = GeminiBrainClient()
+        if brain_client.is_configured:
+            print(f"      ✓ Cloud Brain active ({brain_client.model}).")
+        else:
+            print("      ⚠ Cloud Brain unconfigured (No API key; using local offline responder).")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to initialize Gemini brain client: %s", exc)
+        print("      ⚠ Cloud Brain offline; using local responder.")
+
+    print("[4/4] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
 
     # Map CLI mode to BargeInMode
     mode_map = {
@@ -418,7 +432,16 @@ def talk_main() -> None:
         sys.stdout.write(f"\n📝 [Transcribed]: \"{transcript}\"\n")
         sys.stdout.flush()
 
-        response = generate_offline_response(transcript)
+        # Route through Cloud Brain if available, or fall back to offline responder
+        if brain_client is not None and brain_client.is_configured:
+            try:
+                response = brain_client.chat(transcript)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Cloud brain error: %s. Falling back to local responder.", exc)
+                response = generate_offline_response(transcript)
+        else:
+            response = generate_offline_response(transcript)
+
         sys.stdout.write(f"🤖 [Broski]: \"{response}\"\n")
         sys.stdout.write("🔊 [Speaking]: (Speak or say 'Hey Jarvis' to interrupt mid-speech!)\n\n")
         sys.stdout.flush()
