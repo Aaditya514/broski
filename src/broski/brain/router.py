@@ -70,7 +70,7 @@ class _LLMIntentClassification(BaseModel):
     )
     target: str | None = Field(
         default=None,
-        description="Whitelisted application ID if applicable (obsidian, spotify, chrome, vscode, notepad, discord, terminal) or None.",
+        description="Whitelisted application ID if applicable (obsidian, spotify, chrome, vscode, notepad, discord, terminal, riotgames, valorant, steam) or None.",
     )
     payload: str | None = Field(
         default=None,
@@ -263,7 +263,7 @@ class IntentRouter:
             "- 'dictation': user asks to type or write text into an active window.\n"
             "- 'conversation': questions, general chit-chat, explanations, or requests for information.\n"
             "- 'unknown': unintelligible or unclassifiable audio.\n\n"
-            "Whitelisted applications: obsidian, spotify, chrome, vscode, notepad, discord, terminal.\n"
+            "Whitelisted applications: obsidian, spotify, chrome, vscode, notepad, discord, terminal, riotgames, valorant, steam.\n"
             "If an application is requested, set 'target' to its whitelisted id and 'action' to 'open_app'.\n\n"
             f"User Utterance: \"{text}\""
         )

@@ -151,6 +151,63 @@ WHITELIST_APPS: dict[str, AppDefinition] = {
         ],
         registry_names=["wt.exe", "cmd.exe"],
     ),
+    "riotgames": AppDefinition(
+        id="riotgames",
+        name="Riot Games",
+        aliases=[
+            "riot games",
+            "riot client",
+            "riot",
+            "riot launcher",
+            "priority games",
+            "writer to games",
+            "wire to games",
+            "the wire to games",
+            "the writer to games",
+            "the diode again",
+            "diode again",
+        ],
+        executable_name="RiotClientServices.exe",
+        common_paths=[
+            r"C:\Riot Games\Riot Client\RiotClientServices.exe",
+            r"D:\Riot Games\Riot Client\RiotClientServices.exe",
+            r"%PROGRAMFILES%\Riot Games\Riot Client\RiotClientServices.exe",
+        ],
+        registry_names=["RiotClientServices.exe"],
+    ),
+    "valorant": AppDefinition(
+        id="valorant",
+        name="Valorant",
+        aliases=[
+            "valorant",
+            "val",
+            "valo",
+            "play valorant",
+            "start valorant",
+            "launch valorant",
+        ],
+        executable_name="RiotClientServices.exe",
+        common_paths=[
+            r"C:\Riot Games\Riot Client\RiotClientServices.exe",
+            r"D:\Riot Games\Riot Client\RiotClientServices.exe",
+            r"C:\Riot Games\VALORANT\live\VALORANT.exe",
+        ],
+        default_args=["--launch-product=valorant", "--launch-patchline=live"],
+        registry_names=["RiotClientServices.exe"],
+    ),
+    "steam": AppDefinition(
+        id="steam",
+        name="Steam",
+        aliases=["steam", "steam client", "games launcher"],
+        executable_name="steam.exe",
+        common_paths=[
+            r"C:\Program Files (x86)\Steam\steam.exe",
+            r"C:\Program Files\Steam\steam.exe",
+            r"D:\Steam\steam.exe",
+        ],
+        registry_names=["steam.exe"],
+        protocol_uri="steam://",
+    ),
 }
 
 

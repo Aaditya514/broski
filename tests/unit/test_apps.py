@@ -19,6 +19,9 @@ def test_whitelist_apps_defined() -> None:
     assert "notepad" in WHITELIST_APPS
     assert "discord" in WHITELIST_APPS
     assert "terminal" in WHITELIST_APPS
+    assert "riotgames" in WHITELIST_APPS
+    assert "valorant" in WHITELIST_APPS
+    assert "steam" in WHITELIST_APPS
 
 
 def test_find_app_definition_by_id_and_alias() -> None:
@@ -47,6 +50,23 @@ def test_find_app_definition_by_id_and_alias() -> None:
     note = launcher.find_app_definition("NoTePaD")
     assert note is not None
     assert note.id == "notepad"
+
+    # Gaming targets and phonetic aliases
+    riot = launcher.find_app_definition("riot games")
+    assert riot is not None
+    assert riot.id == "riotgames"
+
+    priority = launcher.find_app_definition("priority games")
+    assert priority is not None
+    assert priority.id == "riotgames"
+
+    val = launcher.find_app_definition("valorant")
+    assert val is not None
+    assert val.id == "valorant"
+
+    steam = launcher.find_app_definition("steam")
+    assert steam is not None
+    assert steam.id == "steam"
 
 
 def test_find_app_definition_unauthorized() -> None:
