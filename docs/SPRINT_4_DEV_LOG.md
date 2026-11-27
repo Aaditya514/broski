@@ -120,10 +120,17 @@ Build an ultra-fast, two-tier Intent Router (`src/broski/brain/router.py`) and W
    * Spoken acknowledgment: *"Opening Obsidian."*, sanitized through `clean_for_speech()`.
 
 4. **Automated Unit Tests**:
-   * Added `tests/unit/test_apps.py` (9 tests) verifying whitelist gating, path discovery, protocol fallback, and execution mocking.
-   * Added `tests/unit/test_router.py` (7 tests) verifying rule matching, dictation extraction, LLM structured classification, and offline fallback.
+   * Added `tests/unit/test_apps.py` (13 tests) verifying whitelist gating, path discovery, protocol fallback, custom SQLite path learning, and execution mocking.
+   * Added `tests/unit/test_router.py` (8 tests) verifying rule matching, path registration commands, dictation extraction, LLM structured classification, and offline fallback.
    * Added CLI integration test in `tests/unit/test_talk_cli.py`.
-   * **Total Test Suite**: **100 / 100 tests passed in 6.87s** with 0 ruff errors!
+   * **Total Test Suite**: **105 / 105 tests passed in 16.96s** with 0 ruff errors!
+
+5. **Persistent Custom Application Path Learning (SQLite Catalog Integration)**:
+   * Connected `MemoryStore` (`installed_apps` table in SQLite) directly into `AppLauncher`.
+   * Voice path registration: Users can say *"Set Obsidian path to D:\Tools\Obsidian.exe"* or *"My Obsidian is at C:\Custom\Obsidian.exe"*.
+   * Validates target against the security whitelist and verifies the file exists on disk before persisting.
+   * `AppLauncher.resolve()` prioritizes user-configured SQLite paths over default common paths.
+   * Automatically records launch statistics (`last_launched` timestamp and `launch_count`) on every launch.
 
 ---
 
@@ -153,7 +160,7 @@ Build an ultra-fast, two-tier Intent Router (`src/broski/brain/router.py`) and W
 
 # 2. Ran full unit test suite
 .\.venv\Scripts\pytest.exe -v
-# -> 100 passed in 6.87s
+# -> 105 passed in 16.96s
 ```
 
 ---

@@ -86,6 +86,18 @@ class IntentRouter:
         r"^(?:please\s+)?(?:can\s+you\s+)?(?:open|launch|start|run|bring\s+up|switch\s+to)\s+(?P<app>[a-zA-Z0-9_\-\s]+?)(?:\s+for\s+me|\s+please)?$",
         re.IGNORECASE,
     )
+    _REGISTER_PATH_RE = re.compile(
+        r"^(?:set|register|update)\s+(?:the\s+)?(?:path|location)\s+(?:for|of)\s+(?P<app>[a-zA-Z0-9_\-\s]+?)\s+(?:to|as|=)\s+(?P<path>.+)$",
+        re.IGNORECASE,
+    )
+    _APP_PATH_IS_RE = re.compile(
+        r"^(?:set|register|update)\s+(?P<app>[a-zA-Z0-9_\-\s]+?)\s+(?:path|location)\s+(?:to|at|=)\s+(?P<path>.+)$",
+        re.IGNORECASE,
+    )
+    _MY_APP_IS_AT_RE = re.compile(
+        r"^(?:my\s+)?(?P<app>[a-zA-Z0-9_\-\s]+?)\s+(?:is\s+(?:located\s+)?)?at\s+(?P<path>[a-zA-Z]:[\\/].+)$",
+        re.IGNORECASE,
+    )
     _DICTATION_RE = re.compile(
         r"^(?:dictate|type|write|insert\s+note|take\s+a\s+note)[:\s]+(?P<text>.+)$",
         re.IGNORECASE,
@@ -179,7 +191,28 @@ class IntentRouter:
                     source="rule",
                 )
 
-        # 2. Match "dictate: <text>" or "type: <text>"
+        # 2. Match custom app path registration (e.g. "set obsidian path to D:\Tools\Obsidian.exe")
+        reg_match = (
+            self._REGISTER_PATH_RE.match(normalized)
+            or self._APP_PATH_IS_RE.match(normalized)
+            or self._MY_APP_IS_AT_RE.match(normalized)
+        )
+        if reg_match:
+            app_candidate = reg_match.group("app").strip()
+            path_candidate = reg_match.group("path").strip().strip('"\'')
+            app_def = self.app_launcher.find_app_definition(app_candidate)
+            if app_def:
+                return IntentResult(
+                    intent=IntentType.SYSTEM_COMMAND,
+                    action="register_app_path",
+                    target=str(app_def.id),
+                    confidence=1.0,
+                    payload=path_candidate,
+                    raw_query=text,
+                    source="rule",
+                )
+
+        # 3. Match "dictate: <text>" or "type: <text>"
         dict_match = self._DICTATION_RE.match(normalized)
         if dict_match:
             dictated_content = dict_match.group("text").strip()

@@ -26,6 +26,7 @@ from broski.brain.client import GeminiBrainClient
 from broski.brain.prompts import clean_for_speech
 from broski.brain.router import IntentRouter, IntentType
 from broski.config import get_settings
+from broski.memory.store import MemoryStore
 from broski.system.apps import AppLauncher
 
 # Configure logging
@@ -398,9 +399,17 @@ def talk_main() -> None:
         logger.debug("Failed to initialize Gemini brain client: %s", exc)
         print("      ⚠ Cloud Brain offline; using local responder.")
 
-    app_launcher = AppLauncher()
+    app_store = MemoryStore()
+    try:
+        import asyncio
+
+        asyncio.run(app_store.initialize())
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to initialize memory store: %s", exc)
+
+    app_launcher = AppLauncher(store=app_store)
     intent_router = IntentRouter(app_launcher=app_launcher, brain_client=brain_client)
-    print("      ✓ Intent Router & App Launcher initialized (Obsidian, Spotify, Chrome, etc.).")
+    print("      ✓ Intent Router & App Launcher initialized with SQLite catalog.")
 
     print("[4/4] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
 
@@ -454,6 +463,12 @@ def talk_main() -> None:
                 response = launch_res.message
             else:
                 response = "I recognized a command to open an application, but couldn't determine which one."
+        elif intent_res.intent == IntentType.SYSTEM_COMMAND and intent_res.action == "register_app_path":
+            if intent_res.target and intent_res.payload:
+                reg_res = app_launcher.register_custom_path(intent_res.target, intent_res.payload)
+                response = reg_res.message
+            else:
+                response = "I couldn't determine which application or file path to register."
         elif intent_res.intent == IntentType.DICTATION:
             text_to_dictate = intent_res.payload or transcript
             response = f"Dictating into active window: {text_to_dictate}"

@@ -52,6 +52,27 @@ def test_router_rule_dictation() -> None:
         assert res.source == "rule"
 
 
+def test_router_rule_register_path() -> None:
+    """Verify Tier 1 rule matching catches path registration commands."""
+    router = IntentRouter()
+
+    test_cases = [
+        ("set obsidian path to D:\\Tools\\Obsidian.exe", "obsidian", "D:\\Tools\\Obsidian.exe"),
+        ("my obsidian is at C:\\Users\\Obsidian.exe", "obsidian", "C:\\Users\\Obsidian.exe"),
+        ("register path for chrome to C:\\Custom\\chrome.exe", "chrome", "C:\\Custom\\chrome.exe"),
+        ("update spotify location = D:\\Music\\Spotify.exe", "spotify", "D:\\Music\\Spotify.exe"),
+    ]
+
+    for utterance, expected_app, expected_path in test_cases:
+        res = router.route(utterance)
+        assert res.intent == IntentType.SYSTEM_COMMAND, f"Failed on '{utterance}'"
+        assert res.action == "register_app_path"
+        assert res.target == expected_app
+        assert res.payload == expected_path
+        assert res.source == "rule"
+
+
+
 def test_router_empty_or_whitespace() -> None:
     """Verify empty or blank transcripts yield UNKNOWN intent."""
     router = IntentRouter()

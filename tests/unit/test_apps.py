@@ -170,3 +170,62 @@ def test_launch_uri_protocol() -> None:
         assert result.success is True
         assert "Opening Spotify" in result.message
         mock_startfile.assert_called_once_with("spotify:")
+
+
+def test_register_custom_path_success() -> None:
+    """Verify registering a custom application path in SQLite MemoryStore."""
+    mock_store = MagicMock()
+    launcher = AppLauncher(store=mock_store)
+
+    fake_exe = r"C:\Custom\Obsidian.exe"
+
+    def fake_is_file(path_obj: Path) -> bool:
+        return str(path_obj) == fake_exe
+
+    with patch.object(Path, "is_file", autospec=True, side_effect=fake_is_file):
+        res = launcher.register_custom_path("obsidian", fake_exe)
+        assert res.success is True
+        assert "Saved custom location" in res.message
+        mock_store.register_app.assert_called_once()
+
+
+def test_register_custom_path_nonexistent_file() -> None:
+    """Verify registering a non-existent file path fails gracefully."""
+    mock_store = MagicMock()
+    launcher = AppLauncher(store=mock_store)
+
+    with patch.object(Path, "is_file", return_value=False):
+        res = launcher.register_custom_path("obsidian", r"C:\Fake\NonExistent.exe")
+        assert res.success is False
+        assert "does not exist on disk" in res.message
+        mock_store.register_app.assert_not_called()
+
+
+def test_register_custom_path_unauthorized_app() -> None:
+    """Verify unauthorized application cannot be registered."""
+    mock_store = MagicMock()
+    launcher = AppLauncher(store=mock_store)
+
+    res = launcher.register_custom_path("unknown_virus", r"C:\Tools\tool.exe")
+    assert res.success is False
+    assert "not in the authorized applications whitelist" in res.message
+
+
+def test_resolve_prioritizes_custom_sqlite_catalog() -> None:
+    """Verify resolve() checks SQLite store first and uses custom learned path."""
+    mock_store = MagicMock()
+    mock_app_item = MagicMock()
+    mock_app_item.path = r"C:\CustomLocation\Obsidian.exe"
+    mock_store.find_app.return_value = mock_app_item
+
+    launcher = AppLauncher(store=mock_store)
+
+    def fake_is_file(path_obj: Path) -> bool:
+        return str(path_obj) == r"C:\CustomLocation\Obsidian.exe"
+
+    with patch.object(Path, "is_file", autospec=True, side_effect=fake_is_file):
+        target = launcher.resolve("obsidian")
+        assert target is not None
+        assert str(target.resolved_path) == r"C:\CustomLocation\Obsidian.exe"
+        mock_store.find_app.assert_called_once()
+

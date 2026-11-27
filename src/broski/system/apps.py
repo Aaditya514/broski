@@ -4,15 +4,25 @@ Provides safe, whitelist-gated application resolution and execution.
 Ensures broski never launches arbitrary, unverified binaries from voice input.
 """
 
+from __future__ import annotations
+
+import asyncio
+import concurrent.futures
 import glob
+import inspect
 import logging
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Coroutine
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from broski.memory.store import MemoryStore
 
 try:
     import winreg
@@ -145,8 +155,28 @@ WHITELIST_APPS: dict[str, AppDefinition] = {
 class AppLauncher:
     """Safely resolves and launches applications strictly adhering to the whitelist."""
 
-    def __init__(self, whitelist: dict[str, AppDefinition] | None = None) -> None:
+    def __init__(
+        self,
+        whitelist: dict[str, AppDefinition] | None = None,
+        store: MemoryStore | None = None,
+    ) -> None:
         self.whitelist: dict[str, AppDefinition] = whitelist or WHITELIST_APPS
+        self.store = store
+
+    def _run_async(self, coro: Coroutine[Any, Any, Any] | Any) -> Any:
+        """Execute an asynchronous coroutine safely from synchronous contexts."""
+        if not inspect.iscoroutine(coro):
+            return coro
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+        return asyncio.run(coro)
 
     def is_whitelisted(self, query: str) -> bool:
         """Check whether a query or alias matches an authorized application."""
@@ -182,7 +212,8 @@ class AppLauncher:
     def resolve(self, query: str) -> AppLaunchTarget | None:
         """Resolve a query into an executable AppLaunchTarget on the current system.
 
-        Searches common directory paths, Windows Registry App Paths, and PATH.
+        Searches custom SQLite app catalog first, then common directory paths,
+        Windows Registry App Paths, and system PATH.
         If an executable binary is not found on disk, but a protocol URI exists,
         falls back to URI-based launch.
         """
@@ -193,22 +224,34 @@ class AppLauncher:
 
         resolved_path: Path | None = None
 
+        # 0. Check custom SQLite app catalog first (user-configured paths have priority)
+        if self.store is not None:
+            try:
+                db_app = self._run_async(self.store.find_app(query))
+                if db_app and db_app.path:
+                    db_candidate = Path(os.path.expandvars(db_app.path))
+                    if db_candidate.is_file():
+                        resolved_path = db_candidate
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to query memory store for '%s': %s", query, exc)
+
         # 1. Check common file paths with environment variable expansion
-        for path_pattern in app_def.common_paths:
-            expanded = os.path.expandvars(path_pattern)
-            # Handle wildcards (e.g. Discord app-*)
-            if "*" in expanded:
-                matches = glob.glob(expanded)
-                if matches:
-                    candidate = Path(matches[-1])
+        if resolved_path is None:
+            for path_pattern in app_def.common_paths:
+                expanded = os.path.expandvars(path_pattern)
+                # Handle wildcards (e.g. Discord app-*)
+                if "*" in expanded:
+                    matches = glob.glob(expanded)
+                    if matches:
+                        candidate = Path(matches[-1])
+                        if candidate.is_file():
+                            resolved_path = candidate
+                            break
+                else:
+                    candidate = Path(expanded)
                     if candidate.is_file():
                         resolved_path = candidate
                         break
-            else:
-                candidate = Path(expanded)
-                if candidate.is_file():
-                    resolved_path = candidate
-                    break
 
         # 2. Check Windows Registry App Paths
         if resolved_path is None and winreg is not None:
@@ -277,6 +320,12 @@ class AppLauncher:
                     proc.pid,
                     target.resolved_path,
                 )
+                if self.store is not None:
+                    try:
+                        self._run_async(self.store.record_app_launch(app_def.name))
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Failed to record launch in memory store: %s", exc)
+
                 return LaunchResult(
                     success=True,
                     app_name=target.display_name,
@@ -318,6 +367,64 @@ class AppLauncher:
             app_name=app_def.name,
             message=f"No executable or protocol available for {app_def.name}.",
         )
+
+    def register_custom_path(
+        self,
+        app_name_or_id: str,
+        exe_path: str | Path,
+        aliases: list[str] | None = None,
+    ) -> LaunchResult:
+        """Register or update a custom executable path for an authorized application in SQLite."""
+        app_def = self.find_app_definition(app_name_or_id)
+        if app_def is None:
+            return LaunchResult(
+                success=False,
+                app_name=app_name_or_id,
+                message=f"'{app_name_or_id}' is not in the authorized applications whitelist.",
+            )
+
+        if self.store is None:
+            return LaunchResult(
+                success=False,
+                app_name=app_def.name,
+                message="Memory store is not initialized; cannot save custom application path.",
+            )
+
+        clean_path_str = str(exe_path).strip().strip('"\'')
+        expanded = os.path.expandvars(clean_path_str)
+        target_file = Path(expanded)
+
+        if not target_file.is_file():
+            return LaunchResult(
+                success=False,
+                app_name=app_def.name,
+                message=f"Cannot register path: file '{expanded}' does not exist on disk.",
+                target_path=expanded,
+            )
+
+        try:
+            combined_aliases = list(set(app_def.aliases + (aliases or [])))
+            self._run_async(
+                self.store.register_app(
+                    name=app_def.name,
+                    path=str(target_file.resolve()),
+                    aliases=combined_aliases,
+                )
+            )
+            logger.info("Registered custom path for '%s': '%s'", app_def.name, target_file)
+            return LaunchResult(
+                success=True,
+                app_name=app_def.name,
+                message=f"Saved custom location for {app_def.name} at {target_file}.",
+                target_path=str(target_file.resolve()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to register app '%s': %s", app_def.name, exc)
+            return LaunchResult(
+                success=False,
+                app_name=app_def.name,
+                message=f"Failed to save custom location in database: {exc}",
+            )
 
     def _query_registry_app_paths(self, exe_name: str) -> str | None:
         """Query Windows Registry App Paths for registered executable paths."""

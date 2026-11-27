@@ -46,11 +46,6 @@ class GeminiBrainClient:
         """Return True if an API key is available for cloud reasoning."""
         return bool(self._api_key)
 
-    @property
-    def client(self) -> genai.Client:
-        """Return the initialized google.genai Client."""
-        return self._ensure_client()
-
     def _ensure_client(self) -> genai.Client:
         """Lazily initialize the google-genai Client."""
         if self._client is not None:
