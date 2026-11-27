@@ -351,6 +351,12 @@ def talk_main() -> None:
         default="hybrid",
         help="Barge-in interruption strategy: 'hybrid' (default), 'vad', or 'wakeword'",
     )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Wake word confidence threshold (default: 0.30 for normal speaking volume)",
+    )
     args = parser.parse_args()
 
     print("\n" + "=" * 65)
@@ -358,6 +364,9 @@ def talk_main() -> None:
     print("=" * 65)
 
     settings = get_settings()
+
+    if args.threshold is not None:
+        settings.audio.wake_word_threshold = args.threshold
 
     # 1. Detect Input Microphone
     in_idx, in_name = auto_select_device(args.input_device)

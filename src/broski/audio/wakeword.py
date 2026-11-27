@@ -91,14 +91,22 @@ class WakeWordDetector:
         self._init_model()
         assert self._model is not None
 
-        # Ensure int16
-        if audio_chunk.dtype != np.int16:
-            if np.issubdtype(audio_chunk.dtype, np.floating):
-                chunk_int16 = (np.clip(audio_chunk, -1.0, 1.0) * 32767.0).astype(np.int16)
-            else:
-                chunk_int16 = audio_chunk.astype(np.int16)
+        # Ensure float array for digital gain scaling
+        if audio_chunk.dtype == np.int16:
+            samples = audio_chunk.astype(np.float32)
+        elif np.issubdtype(audio_chunk.dtype, np.floating):
+            samples = (np.clip(audio_chunk, -1.0, 1.0) * 32767.0).astype(np.float32)
         else:
-            chunk_int16 = audio_chunk
+            samples = audio_chunk.astype(np.float32)
+
+        # Dynamic digital gain boost for Bluetooth earphones / quiet microphones:
+        # Boost quiet conversational speech so openWakeWord receives optimal acoustic amplitude
+        peak = float(np.max(np.abs(samples))) if len(samples) > 0 else 0.0
+        if 200.0 < peak < 16000.0:
+            gain = min(16000.0 / peak, 3.5)
+            samples = samples * gain
+
+        chunk_int16 = np.clip(samples, -32768.0, 32767.0).astype(np.int16)
 
         # Pad or slice to at least 1280 samples if needed
         if len(chunk_int16) < self.chunk_size:
