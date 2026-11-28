@@ -96,39 +96,34 @@ def auto_select_device(requested_idx: int | None = None) -> tuple[int, str]:
                 return dev["index"], dev["name"]
         return requested_idx, f"Device {requested_idx}"
 
-    # 2. Priority 1: Direct Windows Bluetooth Hands-Free driver for OnePlus / Nord / Buds
+    # 2. Priority 1: Connected active Bluetooth headset (excluding raw WDM-KS)
     for dev in devices:
-        name_lower = dev["name"].lower()
-        if any(k in name_lower for k in ("oneplus", "nord", "buds")) and (
-            "bthhfenum" in name_lower or dev.get("hostapi") == 3
-        ):
-            print(
-                f"\n[🎧 Headset Detected] Automatically selecting direct Bluetooth driver: Device [{dev['index']}] (OnePlus Nord Buds 3)"
-            )
-            return dev["index"], "OnePlus Nord Buds 3 (Direct Bluetooth Stream)"
+        if dev.get("is_headset") and not dev.get("is_wdm_ks"):
+            try:
+                s = sd.InputStream(
+                    device=dev["index"],
+                    channels=1,
+                    samplerate=int(dev.get("default_samplerate", 16000)),
+                    dtype="int16",
+                )
+                s.start()
+                s.stop()
+                s.close()
+                print(
+                    f"\n[🎧 Headset Detected] Automatically selecting: Device [{dev['index']}] ({dev['name']})"
+                )
+                return dev["index"], dev["name"]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Candidate headset device [%d] test open failed: %s", dev["index"], exc)
 
-    # 3. Priority 2: Direct Bluetooth driver for other headsets
-    for dev in devices:
-        name_lower = dev["name"].lower()
-        if "bthhfenum" in name_lower or (
-            dev.get("hostapi") == 3 and any(k in name_lower for k in ("headset", "airpods"))
-        ):
-            print(
-                f"\n[🎧 Headset Detected] Automatically selecting direct Bluetooth driver: Device [{dev['index']}] ({dev['name'][:40]})"
-            )
-            return dev["index"], dev["name"]
+    # 3. Priority 2: System default input device (non-WDM-KS)
+    default_dev = next((d for d in devices if d.get("is_default") and not d.get("is_wdm_ks")), None)
+    if default_dev is not None:
+        return default_dev["index"], default_dev["name"]
 
-    # 3. Priority 2: Any detected headset
-    for dev in devices:
-        if dev.get("is_headset"):
-            print(
-                f"\n[🎧 Headset Detected] Automatically selecting: Device [{dev['index']}] ({dev['name']})"
-            )
-            return dev["index"], dev["name"]
-
-    # 4. Priority 3: Fall back to system default
-    default_dev = next((d for d in devices if d["is_default"]), devices[0])
-    return default_dev["index"], default_dev["name"]
+    # 4. Priority 3: Fall back to first available non-WDM-KS input device
+    first_valid = next((d for d in devices if not d.get("is_wdm_ks")), devices[0])
+    return first_valid["index"], first_valid["name"]
 
 
 def main() -> None:

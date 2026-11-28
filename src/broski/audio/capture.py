@@ -21,59 +21,79 @@ def list_input_devices() -> list[dict[str, Any]]:
     """Return a list of available audio input devices and identify the system default."""
     devices = sd.query_devices()
     default_input_idx = sd.default.device[0]
+    try:
+        hostapis = sd.query_hostapis()
+    except Exception:  # noqa: BLE001
+        hostapis = []
 
     input_devs = []
     for idx, dev in enumerate(devices):
-        if dev["max_input_channels"] > 0:
+        if dev.get("max_input_channels", 0) > 0:
             name_lower = dev["name"].lower()
-            is_headset = any(
-                kw in name_lower for kw in ("oneplus", "nord", "buds", "headset", "airpods")
-            ) and not dev["name"].startswith("@")
+            api_name = ""
+            if hostapis and 0 <= dev.get("hostapi", -1) < len(hostapis):
+                api_name = hostapis[dev["hostapi"]].get("name", "").lower()
+
+            # Strictly exclude WDM-KS devices: WDM-KS fails with GLE = 0x0000048F in PortAudio
+            is_wdm_ks = "wdm-ks" in api_name or "wdm-ks" in name_lower
+
+            is_headset = (
+                any(
+                    kw in name_lower for kw in ("oneplus", "nord", "buds", "headset", "airpods")
+                )
+                and not dev["name"].startswith("@")
+                and not is_wdm_ks
+            )
             input_devs.append(
                 {
                     "index": idx,
                     "name": dev["name"],
                     "channels": dev["max_input_channels"],
-                    "default_samplerate": int(dev["default_samplerate"]),
-                    "hostapi": dev["hostapi"],
+                    "default_samplerate": int(dev.get("default_samplerate", 16000)),
+                    "hostapi": dev.get("hostapi", 0),
                     "is_default": idx == default_input_idx,
                     "is_headset": is_headset,
+                    "is_wdm_ks": is_wdm_ks,
                 }
             )
     return input_devs
 
 
 def find_default_or_headset_device() -> tuple[int | None, str]:
-    """Find the best input device, prioritizing connected Bluetooth headsets."""
+    """Find the best input device, prioritizing connected Bluetooth headsets on working APIs."""
     devices = list_input_devices()
     if not devices:
         return None, "Default Audio Device"
 
-    # Priority 1: Direct Windows Bluetooth Hands-Free driver for OnePlus / Nord / Buds
+    # Priority 1: Connected headset on non-WDM-KS APIs (WASAPI / DirectSound / MME)
     for dev in devices:
-        name_lower = dev["name"].lower()
-        if any(k in name_lower for k in ("oneplus", "nord", "buds")) and (
-            "bthhfenum" in name_lower or dev.get("hostapi") == 3
-        ):
-            logger.info("Found direct OnePlus headset driver: [%d] %s", dev["index"], dev["name"])
+        if dev.get("is_headset") and not dev.get("is_wdm_ks"):
+            # Verify device can actually be opened before picking it
+            try:
+                s = sd.InputStream(
+                    device=dev["index"],
+                    channels=1,
+                    samplerate=int(dev.get("default_samplerate", 16000)),
+                    dtype="int16",
+                )
+                s.start()
+                s.stop()
+                s.close()
+                logger.info("Found active headset driver: [%d] %s", dev["index"], dev["name"])
+                return dev["index"], dev["name"]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Headset candidate [%d] %s failed to open: %s", dev["index"], dev["name"], exc)
+
+    # Priority 2: System default device (if non-WDM-KS)
+    for dev in devices:
+        if dev.get("is_default") and not dev.get("is_wdm_ks"):
             return dev["index"], dev["name"]
 
-    # Priority 2: Direct Bluetooth Hands-Free driver for any headset
+    # Priority 3: First available non-WDM-KS input device
     for dev in devices:
-        name_lower = dev["name"].lower()
-        if "bthhfenum" in name_lower or (
-            dev.get("hostapi") == 3 and any(k in name_lower for k in ("headset", "airpods"))
-        ):
-            logger.info("Found direct Bluetooth headset driver: [%d] %s", dev["index"], dev["name"])
+        if not dev.get("is_wdm_ks"):
             return dev["index"], dev["name"]
 
-    # Priority 2: Headset on any host API
-    for dev in devices:
-        if dev.get("is_headset"):
-            logger.info("Found headset: [%d] %s", dev["index"], dev["name"])
-            return dev["index"], dev["name"]
-
-    # Priority 3: Fall back to Windows system default
     default_dev = next((d for d in devices if d["is_default"]), devices[0])
     return default_dev["index"], default_dev["name"]
 
@@ -182,7 +202,7 @@ class AudioCaptureStream:
                 logger.error("Error in audio callback: %s", exc)
 
     def start(self) -> None:
-        """Open and start the microphone audio stream."""
+        """Open and start the microphone audio stream with automatic default fallback."""
         if self.is_running:
             return
 
@@ -191,22 +211,53 @@ class AudioCaptureStream:
 
         blocksize = int(self._native_sample_rate * (self.chunk_duration_ms / 1000.0))
 
-        self._stream = sd.InputStream(
-            device=self.device_index,
-            channels=1,
-            samplerate=self._native_sample_rate,
-            blocksize=blocksize,
-            dtype="int16",
-            callback=self._audio_callback,
-        )
-        self._stream.start()
-        self._is_running = True
-        logger.info(
-            "AudioCaptureStream started (Hardware: %d Hz, Target: %d Hz, Resampling: %s).",
-            self._native_sample_rate,
-            self.target_sample_rate,
-            self._needs_resampling,
-        )
+        try:
+            self._stream = sd.InputStream(
+                device=self.device_index,
+                channels=1,
+                samplerate=self._native_sample_rate,
+                blocksize=blocksize,
+                dtype="int16",
+                callback=self._audio_callback,
+            )
+            self._stream.start()
+            self._is_running = True
+            logger.info(
+                "AudioCaptureStream started on device %s (Hardware: %d Hz, Target: %d Hz, Resampling: %s).",
+                self.device_index,
+                self._native_sample_rate,
+                self.target_sample_rate,
+                self._needs_resampling,
+            )
+        except Exception as exc:
+            if self.device_index is not None:
+                logger.warning(
+                    "Failed to start audio stream on device %s: %s. Retrying on system default microphone...",
+                    self.device_index,
+                    exc,
+                )
+                try:
+                    self.device_index = None
+                    self._native_sample_rate = self._determine_sample_rate()
+                    self._needs_resampling = self._native_sample_rate != self.target_sample_rate
+                    blocksize = int(self._native_sample_rate * (self.chunk_duration_ms / 1000.0))
+                    self._stream = sd.InputStream(
+                        device=None,
+                        channels=1,
+                        samplerate=self._native_sample_rate,
+                        blocksize=blocksize,
+                        dtype="int16",
+                        callback=self._audio_callback,
+                    )
+                    self._stream.start()
+                    self._is_running = True
+                    logger.info("AudioCaptureStream successfully recovered on system default microphone.")
+                    return
+                except Exception as fallback_exc:
+                    logger.error("Failed to start stream on fallback default microphone: %s", fallback_exc)
+                    raise
+            logger.error("Failed to start AudioCaptureStream: %s", exc)
+            raise
 
     def stop(self) -> None:
         """Stop and close the microphone audio stream."""
