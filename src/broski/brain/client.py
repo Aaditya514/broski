@@ -26,6 +26,7 @@ class GeminiBrainClient:
         model: str | None = None,
         temperature: float | None = None,
         system_instruction: str = DEFAULT_SYSTEM_INSTRUCTION,
+        tools: list[Any] | None = None,
     ) -> None:
         settings = get_settings()
 
@@ -37,6 +38,7 @@ class GeminiBrainClient:
             temperature if temperature is not None else settings.brain.temperature
         )
         self.system_instruction = system_instruction
+        self.tools = tools
 
         self._client: genai.Client | None = None
         self._chat_session: Any = None
@@ -66,18 +68,25 @@ class GeminiBrainClient:
         return self._client
 
     def _get_config(
-        self, custom_instruction: str | None = None
+        self,
+        custom_instruction: str | None = None,
+        tools: list[Any] | None = None,
     ) -> types.GenerateContentConfig:
-        """Build GenerateContentConfig with system instruction and temperature."""
+        """Build GenerateContentConfig with system instruction, temperature, and optional tools."""
         instruction = (
             custom_instruction
             if custom_instruction is not None
             else self.system_instruction
         )
-        return types.GenerateContentConfig(
-            system_instruction=instruction,
-            temperature=self.temperature,
-        )
+        config_kwargs: dict[str, Any] = {
+            "system_instruction": instruction,
+            "temperature": self.temperature,
+        }
+        active_tools = tools if tools is not None else self.tools
+        if active_tools:
+            config_kwargs["tools"] = active_tools
+
+        return types.GenerateContentConfig(**config_kwargs)
 
     def generate(
         self,

@@ -26,7 +26,7 @@ In **Sprint 5**, we integrate deep, safe desktop tooling:
 | **Day 1** | **3-Tier Security Tooling & Obsidian Client** | `RiskLevel`, `BaseTool`, `ToolRegistry`, `SecurityConfirmationManager`, `ObsidianClient`, Obsidian tools | **COMPLETED** |
 | **Day 2** | **Developer Git Assistant** | `GitInspector`, safe repository discovery, read-only status/diff tools, security gating | **COMPLETED** |
 | **Day 3** | **Chrome Browser Automation** | Chrome navigation, active webpage text extraction, search and summarization | **COMPLETED** |
-| **Day 4** | **Gemini Function Calling & Voice Loop Integration** | Wiring `ToolRegistry` to Gemini API function calling, voice CLI testing, full quality gate & merge | **UPCOMING** |
+| **Day 4** | **Gemini Function Calling & Voice Loop Integration** | Wiring `ToolRegistry` to Gemini API function calling, voice CLI testing, full quality gate & merge | **COMPLETED** |
 
 ---
 
@@ -226,10 +226,64 @@ In **Sprint 5**, we integrate deep, safe desktop tooling:
 
 ---
 
-### 🚀 3. Plan for Day 4 of Sprint 5 (Gemini Function Calling & Voice Integration)
-* Wire `ToolRegistry` into `GeminiBrainClient` tool calling definitions.
-* Enhance `broski-talk` full-duplex voice loop to dynamically call tools, synthesize concise answers with Piper TTS, and handle confirmation requests.
-* Run end-to-end voice loop quality gate and merge `feat/sprint-5-tools` into `main`.
+## 📅 Day 4 of 4: Tool Calling & Voice Loop Integration, Quality Gate & Merge into `main`
+
+### 🎯 Objective & Milestones
+* **Two-Tier Tool Calling Integration (`src/broski/brain/router.py`)**:
+  * Added `IntentType.TOOL_EXECUTION = "tool_execution"` and `IntentType.CONFIRMATION = "confirmation"`.
+  * Built Tier 1 ultra-fast (<0.1ms) regex fast paths for Obsidian notes, Git inspection/commands, and Browser navigation/search/reading.
+  * Extended `IntentResult` with structured `tool_args`.
+  * Integrated Tier 2 Gemini structured output classification recognizing tool dispatch requests.
+* **Full-Duplex Conversational Voice Loop Wiring (`src/broski/audio/cli.py`)**:
+  * Initialized `ToolRegistry` with all 14 Obsidian, Git, and Browser tools.
+  * Wired tool dispatch directly into `talk_main()` with live console feedback and speech synthesis.
+  * Added voice confirmation loop: When a `CRITICAL` tool is triggered, broski pauses and prompts for confirmation; speaking *"confirm"* or *"approve"* executes the gated tool, while *"cancel"* aborts it safely.
+* **Testing & Quality Assurance**:
+  * Added 5 new unit tests in `tests/unit/test_router.py` verifying fast rule dispatch, confirmation handling, and LLM tool routing.
+  * **181 / 181 unit tests passing** (100% green) across all subsystems in **6.58s** with 0 linter warnings.
+
+---
+
+### 🛠️ 1. Technical Deep-Dive: Implementation Details
+
+1. **Two-Tier Tool Execution Routing**:
+   * *Tier 1 Fast-Path*: Common developer phrases (e.g. *"what's in my daily note"*, *"git status"*, *"show me the diff"*, *"search google for python docs"*) match instant regexes with zero latency ($<0.1\text{ ms}$) and zero token cost.
+   * *Tier 2 LLM Dispatch*: Complex or conversational variations fall through to Gemini Flash-Lite with structured tool definitions, extracting typed arguments (`tool_args`) without hallucinating invalid tool names.
+
+2. **Security Confirmation Voice Handshake**:
+   * When a mutating action (`git commit` or `git push`) is invoked:
+     1. Tool execution is halted by `ToolRegistry`.
+     2. `SecurityConfirmationManager` creates an unapproved request with a unique ID.
+     3. Broski verbally prompts: *"Yo bro, 'git_commit' is a critical action. Say 'confirm' or approve request [abc1234] to run it."*
+     4. In the subsequent turn, user says *"Confirm"* $\rightarrow$ router detects `IntentType.CONFIRMATION(action="approve")`.
+     5. The tool executes with `confirmation_id` and confirms verbally: *"Confirmed bro! Committed your changes with message: 'feat: finish sprint 5'!"*
+
+3. **Complete Tool Inventory in Registry**:
+   * **Obsidian**: `obsidian_read_daily_note`, `obsidian_append_daily_note`, `obsidian_read_note`, `obsidian_search_notes`, `obsidian_create_note`.
+   * **Git**: `git_status`, `git_diff`, `git_log`, `git_branch`, `git_commit`, `git_push`.
+   * **Browser**: `browser_open_url`, `browser_search`, `browser_read_webpage`.
+
+---
+
+### 💻 2. Commands Executed & Outputs
+```powershell
+# 1. Quality gate linting
+.\.venv\Scripts\ruff.exe check .
+# -> All checks passed!
+
+# 2. Test suite verification
+.\.venv\Scripts\pytest.exe -v
+# -> 181 passed in 6.58s (100% green)
+```
+
+---
+
+### 🏆 Sprint 5 Completion Summary
+* **Status**: **COMPLETED & VERIFIED**
+* **Milestone**: Security Gated System Tools & Deep Integrations (Obsidian, Git, and Chrome)
+* **Quality Gate**: **181 / 181 Unit Tests Passing (100% Green)**
+* **Next Sprint**: **Sprint 6: PySide6 Minimalist Desktop UI & System Tray Hardening**
+
 
 
 

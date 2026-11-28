@@ -106,6 +106,7 @@ broski-listen
   * 📄 **[Sprint 2 Dev Log](docs/SPRINT_2_DEV_LOG.md)**: Local audio sensory subsystem, WASAPI/Bluetooth stream, Silero VAD, openWakeWord, Whisper INT8, and live CLI (45/45 tests).
   * 📄 **[Sprint 3 Dev Log](docs/SPRINT_3_DEV_LOG.md)**: Neural speech synthesis (Piper TTS) & full-duplex barge-in (76/76 tests).
   * 📄 **[Sprint 4 Dev Log](docs/SPRINT_4_DEV_LOG.md)**: Cloud Brain, Two-Tier Intent Router, Chrome profiles, Active Window Text Injection, and Contextual Disambiguation (126/126 tests).
+  * 📄 **[Sprint 5 Dev Log](docs/SPRINT_5_DEV_LOG.md)**: Security Gated System Tools, Obsidian Vault Client, Developer Git Assistant, and Chrome Browser Automation (181/181 tests).
 
 ---
 
@@ -117,7 +118,7 @@ broski-listen
 | **Sprint 2** | **Local Audio Sensory Subsystem**<br>• Hardware Discovery & WASAPI / Bluetooth Stream<br>• Lock-Free Circular Audio Ring Buffer<br>• Silero VAD v4 Neural Voice Detection<br>• Low-CPU Wake Word (`openWakeWord`) with Gain Boost<br>• Local Speech-to-Text (`faster-whisper` INT8 on CPU)<br>• Interactive Live Terminal CLI (`broski-listen`) | **COMPLETED** | 📄 **[Sprint 2 Dev Log](docs/SPRINT_2_DEV_LOG.md)** |
 | **Sprint 3** | **Neural Speech Synthesis & Barge-in**<br>• Piper TTS ONNX local voice synthesis (`en_US-lessac-medium`)<br>• Non-blocking audio playback stream (`sounddevice.OutputStream`)<br>• Thread-safe chunk queue & stereo earbud duplication<br>• Full-duplex barge-in detector (`BargeInDetector`, <10ms)<br>• Interactive Full-Duplex Voice CLI (`broski-talk`) | **COMPLETED** | 📄 **[Sprint 3 Dev Log](docs/SPRINT_3_DEV_LOG.md)** |
 | **Sprint 4** | **Cloud Brain, Intent Routing & Active Window Text Injection**<br>• Google Gemini API (`google-genai` SDK `gemini-3.1-flash-lite`)<br>• Two-tier intent router (Local heuristics + Cloud LLM)<br>• Windows whitelist app launcher & Chrome profile manager<br>• Active-window text injection (SendInput Unicode & Clipboard Paste)<br>• Contextual pronoun resolution & intent disambiguation<br>• Friendly bro persona across affirmations and dialogue | **COMPLETED**<br>*(126/126 tests passing)* | 📄 **[Sprint 4 Dev Log](docs/SPRINT_4_DEV_LOG.md)** |
-| **Sprint 5** | **Security Gated System Tools & Deep Integrations**<br>• Chrome browser automation (Playwright / CDP)<br>• Obsidian Local REST API vault client<br>• Developer Git assistant (`git status`, diff summaries)<br>• 3-tier security confirmation dialog | **UPCOMING** | 📄 *Pending* |
+| **Sprint 5** | **Security Gated System Tools & Deep Integrations**<br>• 3-Tier Security Confirmation & Risk Gating (`SAFE`, `MODERATE`, `CRITICAL`)<br>• Obsidian Local REST API vault client (read/append daily note & search)<br>• Developer Git assistant (zero-shell repo status, diffs, commits, pushes)<br>• Chrome browser automation & zero-dependency webpage text reader<br>• Voice confirmation handshake for critical mutations | **COMPLETED**<br>*(181/181 tests passing)* | 📄 **[Sprint 5 Dev Log](docs/SPRINT_5_DEV_LOG.md)** |
 | **Sprint 6** | **PySide6 Desktop UI & System Hardening**<br>• Floating translucent HUD pill<br>• System tray menu and controls<br>• Custom "Hey broski" openWakeWord model calibration | **UPCOMING** | 📄 *Pending* |
 
 ---
