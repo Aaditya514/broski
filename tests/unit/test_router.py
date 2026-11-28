@@ -214,3 +214,105 @@ def test_router_disambiguation_clarifying_question_mocked() -> None:
     assert "Valorant or Steam" in (res.payload or "")
     assert res.source == "llm"
 
+
+def test_router_rule_obsidian_tools() -> None:
+    """Verify Tier 1 rules route Obsidian daily note and search commands."""
+    router = IntentRouter()
+
+    res_read = router.route("what is in my daily note")
+    assert res_read.intent == IntentType.TOOL_EXECUTION
+    assert res_read.action == "obsidian_read_daily_note"
+
+    res_append = router.route("add to daily note: review pull request")
+    assert res_append.intent == IntentType.TOOL_EXECUTION
+    assert res_append.action == "obsidian_append_daily_note"
+    assert res_append.tool_args == {"content": "review pull request"}
+
+    res_search = router.route("search my notes for quantum")
+    assert res_search.intent == IntentType.TOOL_EXECUTION
+    assert res_search.action == "obsidian_search_notes"
+    assert res_search.tool_args == {"query": "quantum"}
+
+
+def test_router_rule_git_tools() -> None:
+    """Verify Tier 1 rules route Git status, diff, branch, and log commands."""
+    router = IntentRouter()
+
+    res_status = router.route("git status")
+    assert res_status.intent == IntentType.TOOL_EXECUTION
+    assert res_status.action == "git_status"
+
+    res_status2 = router.route("what files did i change")
+    assert res_status2.intent == IntentType.TOOL_EXECUTION
+    assert res_status2.action == "git_status"
+
+    res_diff = router.route("show me the diff")
+    assert res_diff.intent == IntentType.TOOL_EXECUTION
+    assert res_diff.action == "git_diff"
+
+    res_branch = router.route("what branch am i on")
+    assert res_branch.intent == IntentType.TOOL_EXECUTION
+    assert res_branch.action == "git_branch"
+
+    res_log = router.route("show me recent commits")
+    assert res_log.intent == IntentType.TOOL_EXECUTION
+    assert res_log.action == "git_log"
+
+
+def test_router_rule_browser_tools() -> None:
+    """Verify Tier 1 rules route browser search and open commands."""
+    router = IntentRouter()
+
+    res_search = router.route("search google for python docs")
+    assert res_search.intent == IntentType.TOOL_EXECUTION
+    assert res_search.action == "browser_search"
+    assert res_search.tool_args == {"query": "python docs"}
+
+    res_open = router.route("open website github.com")
+    assert res_open.intent == IntentType.TOOL_EXECUTION
+    assert res_open.action == "browser_open_url"
+    assert res_open.tool_args == {"url": "github.com"}
+
+
+def test_router_confirmation_matching() -> None:
+    """Verify confirmation matching when security confirmation requests are pending."""
+    from broski.tools.registry import ToolRegistry
+    from broski.tools.security import SecurityConfirmationManager
+
+    manager = SecurityConfirmationManager()
+    manager.request_confirmation("git_commit", {"message": "wip"})
+    registry = ToolRegistry(confirmation_manager=manager)
+
+    router = IntentRouter(tool_registry=registry)
+
+    res_approve = router.route("confirm")
+    assert res_approve.intent == IntentType.CONFIRMATION
+    assert res_approve.action == "approve"
+
+    res_deny = router.route("cancel")
+    assert res_deny.intent == IntentType.CONFIRMATION
+    assert res_deny.action == "deny"
+
+
+def test_router_llm_tool_execution_mocked() -> None:
+    """Verify Tier 2 LLM routing classifies tool execution when rule doesn't match."""
+    mock_brain = MagicMock()
+    mock_brain.is_configured = True
+    mock_brain.model = "gemini-3.1-flash-lite"
+
+    mock_response = MagicMock()
+    mock_response.text = (
+        '{"intent": "tool_execution", "action": "git_commit", "target": "git", '
+        '"tool_args": {"message": "feat: finish sprint 5"}}'
+    )
+    mock_brain.client.models.generate_content.return_value = mock_response
+
+    router = IntentRouter(brain_client=mock_brain)
+
+    res = router.route("Please commit my changes with the message feat: finish sprint 5")
+    assert res.intent == IntentType.TOOL_EXECUTION
+    assert res.action == "git_commit"
+    assert res.tool_args == {"message": "feat: finish sprint 5"}
+    assert res.source == "llm"
+
+

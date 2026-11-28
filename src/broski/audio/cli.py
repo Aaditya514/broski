@@ -29,6 +29,27 @@ from broski.config import get_settings
 from broski.memory.store import MemoryStore
 from broski.system.apps import AppLauncher
 from broski.system.injector import ActiveWindowInjector
+from broski.tools import (
+    BrowserNavigator,
+    BrowserOpenUrlTool,
+    BrowserReadWebpageTool,
+    BrowserSearchTool,
+    GitBranchTool,
+    GitCommitTool,
+    GitDiffTool,
+    GitInspector,
+    GitLogTool,
+    GitPushTool,
+    GitStatusTool,
+    ObsidianAppendDailyNoteTool,
+    ObsidianClient,
+    ObsidianCreateNoteTool,
+    ObsidianReadDailyNoteTool,
+    ObsidianReadNoteTool,
+    ObsidianSearchNotesTool,
+    SecurityConfirmationManager,
+    ToolRegistry,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -414,9 +435,36 @@ def talk_main() -> None:
 
     app_launcher = AppLauncher(store=app_store)
     injector = ActiveWindowInjector()
-    intent_router = IntentRouter(app_launcher=app_launcher, brain_client=brain_client)
+
+    tool_registry = ToolRegistry(confirmation_manager=SecurityConfirmationManager())
+    obsidian_client = ObsidianClient()
+    tool_registry.register(ObsidianReadDailyNoteTool(client=obsidian_client))
+    tool_registry.register(ObsidianAppendDailyNoteTool(client=obsidian_client))
+    tool_registry.register(ObsidianReadNoteTool(client=obsidian_client))
+    tool_registry.register(ObsidianSearchNotesTool(client=obsidian_client))
+    tool_registry.register(ObsidianCreateNoteTool(client=obsidian_client))
+
+    git_inspector = GitInspector()
+    tool_registry.register(GitStatusTool(inspector=git_inspector))
+    tool_registry.register(GitDiffTool(inspector=git_inspector))
+    tool_registry.register(GitLogTool(inspector=git_inspector))
+    tool_registry.register(GitBranchTool(inspector=git_inspector))
+    tool_registry.register(GitCommitTool(inspector=git_inspector))
+    tool_registry.register(GitPushTool(inspector=git_inspector))
+
+    browser_nav = BrowserNavigator()
+    tool_registry.register(BrowserOpenUrlTool(navigator=browser_nav))
+    tool_registry.register(BrowserSearchTool(navigator=browser_nav))
+    tool_registry.register(BrowserReadWebpageTool(navigator=browser_nav))
+
+    intent_router = IntentRouter(
+        app_launcher=app_launcher,
+        brain_client=brain_client,
+        tool_registry=tool_registry,
+    )
     print("      ✓ Intent Router & App Launcher initialized with SQLite catalog.")
     print("      ✓ Active Window Text Injector ready.")
+    print("      ✓ Tool Registry active (Obsidian, Git, and Chrome Browser tools).")
 
     print("[4/4] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
 
@@ -505,6 +553,44 @@ def talk_main() -> None:
                 response = f"Typed into {win_target}, got you bro!"
             else:
                 response = f"Couldn't type that in bro: {res.message}"
+        elif intent_res.intent == IntentType.TOOL_EXECUTION and intent_res.action:
+            tool_name = intent_res.action
+            tool_args = intent_res.tool_args or {}
+            try:
+                import asyncio
+
+                tool_res = asyncio.run(tool_registry.execute(tool_name, tool_args))
+                sys.stdout.write(f"🛠️  [Tool Executed]: {tool_name} (Success: {tool_res.success})\n")
+                sys.stdout.flush()
+                response = tool_res.message
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Error running tool '%s': %s", tool_name, exc)
+                response = f"Sorry bro, running {tool_name} hit an error: {exc}"
+        elif intent_res.intent == IntentType.CONFIRMATION:
+            pending = tool_registry.confirmation_manager.get_pending_requests()
+            if pending:
+                latest_req = pending[-1]
+                is_approved = intent_res.action == "approve"
+                tool_registry.confirmation_manager.confirm(latest_req.request_id, approved=is_approved)
+                if is_approved:
+                    import asyncio
+
+                    exec_res = asyncio.run(
+                        tool_registry.execute(
+                            latest_req.tool_name,
+                            latest_req.args,
+                            confirmation_id=latest_req.request_id,
+                        )
+                    )
+                    sys.stdout.write(f"✅ [Confirmed & Executed]: {latest_req.tool_name}\n")
+                    sys.stdout.flush()
+                    response = f"Confirmed bro! {exec_res.message}"
+                else:
+                    sys.stdout.write(f"❌ [Confirmation Denied]: {latest_req.tool_name}\n")
+                    sys.stdout.flush()
+                    response = f"Cancelled '{latest_req.tool_name}', got you bro."
+            else:
+                response = "There are no pending actions to confirm right now, bro."
         elif intent_res.intent == IntentType.DISAMBIGUATION:
             response = intent_res.payload or "Which one did you want bro?"
         else:
