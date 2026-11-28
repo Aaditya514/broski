@@ -25,7 +25,7 @@ In **Sprint 5**, we integrate deep, safe desktop tooling:
 | :---: | :--- | :--- | :---: |
 | **Day 1** | **3-Tier Security Tooling & Obsidian Client** | `RiskLevel`, `BaseTool`, `ToolRegistry`, `SecurityConfirmationManager`, `ObsidianClient`, Obsidian tools | **COMPLETED** |
 | **Day 2** | **Developer Git Assistant** | `GitInspector`, safe repository discovery, read-only status/diff tools, security gating | **COMPLETED** |
-| **Day 3** | **Chrome Browser Automation** | Chrome navigation, active webpage text extraction, search and summarization | **UPCOMING** |
+| **Day 3** | **Chrome Browser Automation** | Chrome navigation, active webpage text extraction, search and summarization | **COMPLETED** |
 | **Day 4** | **Gemini Function Calling & Voice Loop Integration** | Wiring `ToolRegistry` to Gemini API function calling, voice CLI testing, full quality gate & merge | **UPCOMING** |
 
 ---
@@ -178,9 +178,58 @@ In **Sprint 5**, we integrate deep, safe desktop tooling:
 
 ---
 
-### 🚀 3. Plan for Day 3 of Sprint 5 (Chrome Browser Automation)
-* Implement Chrome browser navigation, search, and content extraction tools in `src/broski/tools/browser.py`.
-* Provide web page reading and article text summarization for hands-free browsing.
-* Add automated unit tests in `tests/unit/test_browser_tools.py`.
+## 📅 Day 3 of 4: Chrome Browser Automation & Webpage Content Extraction
+
+### 🎯 Objective & Milestones
+* **Chrome Browser Automation (`src/broski/tools/browser.py`)**:
+  * Build `BrowserNavigator` with dynamic Chrome executable resolution, URL scheme normalization, and multi-profile direct launch (`ChromeProfileManager`).
+  * Implement clean webpage text extraction (`WebpageContentExtractor`) based on Python standard library `html.parser.HTMLParser`.
+  * Strip web noise (scripts, stylesheets, headers, footers, navigation bars, SVG elements, iframes).
+  * Asynchronous webpage reading via `httpx.AsyncClient` with user-agent headers and character limit budgeting.
+* **Typed Browser Tools**:
+  * `BrowserOpenUrlTool` (`RiskLevel.SAFE`): Opens any web URL in Chrome, with optional profile selection.
+  * `BrowserSearchTool` (`RiskLevel.SAFE`): Performs web searches on Google or DuckDuckGo.
+  * `BrowserReadWebpageTool` (`RiskLevel.SAFE`): Extracts article text and page title for speech summarization.
+* **Testing & Quality Assurance**:
+  * Added 11 unit tests in `tests/unit/test_browser_tools.py` covering HTML extraction, URL normalization, profile launching, search engine URLs, async webpage retrieval, and error handling.
+  * **176 / 176 unit tests passing** (100% green) across all subsystems with 0 linter warnings.
+
+---
+
+### 🛠️ 1. Technical Deep-Dive: Implementation Details
+
+1. **Lightweight, Zero-Dependency HTML Content Extraction**:
+   * Rather than pulling in heavy external dependencies like Beautiful Soup or Playwright Chromium binaries (~200MB), `WebpageContentExtractor` extends standard Python `html.parser.HTMLParser`.
+   * Strips clutter elements (`script`, `style`, `noscript`, `header`, `footer`, `nav`, `svg`, `aside`, `iframe`) and extracts `<title>` and paragraph/article text.
+   * Collapses excessive whitespace to generate clean, readable text ready for Gemini summarization or Piper TTS reading.
+
+2. **Multi-Profile Chrome Direct Launch Integration**:
+   * Combines `ChromeProfileManager` from Sprint 4 with `BrowserNavigator`.
+   * When user requests opening a site on a specific account (e.g. *"Open GitHub on my Personal Chrome"*), the tool passes `--profile-directory=...` directly, completely avoiding Chrome's modal profile picker.
+
+3. **Subprocess Resilience**:
+   * Uses `subprocess.Popen([chrome_path, url], stdout=DEVNULL, stderr=DEVNULL)` to avoid freezing broski's async event loop.
+   * Falls back gracefully to Windows default browser (`webbrowser.open(url)`) if Chrome is not installed.
+
+---
+
+### 💻 2. Commands Executed & Outputs
+```powershell
+# 1. Quality gate linting
+.\.venv\Scripts\ruff.exe check .
+# -> All checks passed!
+
+# 2. Test suite verification
+.\.venv\Scripts\pytest.exe -v
+# -> 176 passed in 5.58s (100% green)
+```
+
+---
+
+### 🚀 3. Plan for Day 4 of Sprint 5 (Gemini Function Calling & Voice Integration)
+* Wire `ToolRegistry` into `GeminiBrainClient` tool calling definitions.
+* Enhance `broski-talk` full-duplex voice loop to dynamically call tools, synthesize concise answers with Piper TTS, and handle confirmation requests.
+* Run end-to-end voice loop quality gate and merge `feat/sprint-5-tools` into `main`.
+
 
 

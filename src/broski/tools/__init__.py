@@ -1,6 +1,12 @@
 """Tools, external service integrations, and security confirmation subsystem for broski."""
 
 from broski.tools.base import BaseTool, RiskLevel, ToolResult
+from broski.tools.browser import (
+    BrowserNavigator,
+    BrowserOpenUrlTool,
+    BrowserReadWebpageTool,
+    BrowserSearchTool,
+)
 from broski.tools.git import (
     GitBranchTool,
     GitCommitTool,
@@ -27,6 +33,10 @@ from broski.tools.security import (
 
 __all__ = [
     "BaseTool",
+    "BrowserNavigator",
+    "BrowserOpenUrlTool",
+    "BrowserReadWebpageTool",
+    "BrowserSearchTool",
     "ConfirmationRequest",
     "ConfirmationStatus",
     "GitBranchTool",
