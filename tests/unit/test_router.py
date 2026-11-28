@@ -158,3 +158,59 @@ def test_router_llm_error_graceful_fallback() -> None:
     res = router.route("Can you summarize the news?")
     assert res.intent == IntentType.CONVERSATION
     assert res.source == "fallback"
+
+
+def test_router_contextual_pronoun_resolution_mocked() -> None:
+    """Verify router uses conversation context to resolve pronouns ('open it')."""
+    mock_brain = MagicMock()
+    mock_brain.is_configured = True
+    mock_brain.model = "gemini-3.1-flash-lite"
+
+    mock_response = MagicMock()
+    mock_response.text = '{"intent": "system_command", "action": "open_app", "target": "obsidian", "payload": null, "requires_clarification": false}'
+    mock_brain.client.models.generate_content.return_value = mock_response
+
+    router = IntentRouter(brain_client=mock_brain)
+
+    context = [
+        {"role": "user", "text": "Can you check my notes in Obsidian?"},
+        {"role": "assistant", "text": "Obsidian is where all your daily notes and vaults live."},
+    ]
+
+    res = router.route("Open it", context=context)
+
+    assert res.intent == IntentType.SYSTEM_COMMAND
+    assert res.action == "open_app"
+    assert res.target == "obsidian"
+    assert res.source == "llm"
+
+    # Verify that conversation history was included in the LLM prompt
+    call_args = mock_brain.client.models.generate_content.call_args
+    prompt_sent = call_args.kwargs["contents"]
+    assert "Obsidian is where all your daily notes" in prompt_sent
+    assert 'User Utterance: "Open it"' in prompt_sent
+
+
+def test_router_disambiguation_clarifying_question_mocked() -> None:
+    """Verify router returns DISAMBIGUATION when an utterance is ambiguous."""
+    mock_brain = MagicMock()
+    mock_brain.is_configured = True
+    mock_brain.model = "gemini-3.1-flash-lite"
+
+    mock_response = MagicMock()
+    mock_response.text = (
+        '{"intent": "disambiguation", "action": "ask_clarification", "target": null, '
+        '"payload": "Which game did you want me to open bro, Valorant or Steam?", "requires_clarification": true}'
+    )
+    mock_brain.client.models.generate_content.return_value = mock_response
+
+    router = IntentRouter(brain_client=mock_brain)
+
+    res = router.route("Open that game for me")
+
+    assert res.intent == IntentType.DISAMBIGUATION
+    assert res.action == "ask_clarification"
+    assert res.target is None
+    assert "Valorant or Steam" in (res.payload or "")
+    assert res.source == "llm"
+

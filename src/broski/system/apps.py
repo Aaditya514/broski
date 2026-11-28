@@ -12,12 +12,13 @@ import glob
 import inspect
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 from collections.abc import Coroutine
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -243,30 +244,36 @@ class AppLauncher:
         """Check whether a query or alias matches an authorized application."""
         return self.find_app_definition(query) is not None
 
+    # Stop words and pronouns that must never be treated as application names
+    _STOP_WORDS: ClassVar[set[str]] = {"it", "that", "this", "them", "app", "the", "one", "thing"}
+
     def find_app_definition(self, query: str) -> AppDefinition | None:
         """Find matching AppDefinition by canonical ID or alias."""
         normalized = query.strip().lower()
-        if not normalized:
+        if not normalized or normalized in self._STOP_WORDS:
             return None
 
         # 1. Exact match on ID
         if normalized in self.whitelist:
             return self.whitelist[normalized]
 
-        # 2. Check aliases across all whitelisted apps
+        # 2. Exact match on name or aliases across all whitelisted apps
         for app in self.whitelist.values():
             if normalized == app.name.lower():
                 return app
             if normalized in [a.lower() for a in app.aliases]:
                 return app
 
-        # 3. Substring/contains match on aliases or app name
-        for app in self.whitelist.values():
-            if normalized in app.name.lower():
-                return app
-            for alias in app.aliases:
-                if normalized in alias or alias in normalized:
+        # 3. Word-boundary token match on aliases or app name (min length 3, non-stopword)
+        if len(normalized) >= 3 and normalized not in self._STOP_WORDS:
+            for app in self.whitelist.values():
+                if normalized in app.name.lower():
                     return app
+                for alias in app.aliases:
+                    if re.search(rf"\b{re.escape(normalized)}\b", alias) or re.search(
+                        rf"\b{re.escape(alias)}\b", normalized
+                    ):
+                        return app
 
         # 4. Check if query refers to a specific Chrome profile (e.g. "college chrome", "ghost chrome")
         if self.chrome_manager is not None:

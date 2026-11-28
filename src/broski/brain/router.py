@@ -32,6 +32,7 @@ class IntentType(str, Enum):
     CONVERSATION = "conversation"
     SYSTEM_COMMAND = "system_command"
     DICTATION = "dictation"
+    DISAMBIGUATION = "disambiguation"
     UNKNOWN = "unknown"
 
 
@@ -62,11 +63,11 @@ class IntentResult(BaseModel):
 # Structured Pydantic schema passed to Gemini for JSON schema generation
 class _LLMIntentClassification(BaseModel):
     intent: str = Field(
-        description="One of: 'conversation', 'system_command', 'dictation', or 'unknown'."
+        description="One of: 'conversation', 'system_command', 'dictation', 'disambiguation', or 'unknown'."
     )
     action: str | None = Field(
         default=None,
-        description="Action verb, such as 'open_app', 'close_app', 'dictate_text', or 'converse'.",
+        description="Action verb, such as 'open_app', 'close_app', 'dictate_text', 'ask_clarification', or 'converse'.",
     )
     target: str | None = Field(
         default=None,
@@ -74,7 +75,11 @@ class _LLMIntentClassification(BaseModel):
     )
     payload: str | None = Field(
         default=None,
-        description="Text to dictate if intent is dictation, or additional context if applicable.",
+        description="Text to dictate if dictation, clarifying question if disambiguation, or response context.",
+    )
+    requires_clarification: bool = Field(
+        default=False,
+        description="True if the request is ambiguous (e.g. pronoun with unknown referent, or multiple choices) and broski must ask the user to clarify.",
     )
 
 
@@ -115,12 +120,16 @@ class IntentRouter:
         self.app_launcher = app_launcher or AppLauncher()
         self.brain_client = brain_client
 
-    def route(self, transcript: str) -> IntentResult:
+    def route(
+        self,
+        transcript: str,
+        context: list[dict[str, str]] | None = None,
+    ) -> IntentResult:
         """Route a user transcript to its intent.
 
         First attempts ultra-fast Tier 1 rule-based pattern matching (<0.1ms).
         If unmatched and a configured Gemini Brain client is present, falls back
-        to Tier 2 structured cloud classification.
+        to Tier 2 structured cloud classification with conversational context.
         Otherwise, defaults to CONVERSATION.
         """
         clean_text = transcript.strip()
@@ -148,10 +157,10 @@ class IntentRouter:
             return rule_match
 
         # ----------------------------------------------------------------------
-        # Tier 2: LLM Structured Classification (Gemini Flash-Lite)
+        # Tier 2: LLM Structured Classification (Gemini Flash-Lite with Context)
         # ----------------------------------------------------------------------
         if self.brain_client is not None and self.brain_client.is_configured:
-            llm_result = self._classify_with_llm(clean_text)
+            llm_result = self._classify_with_llm(clean_text, context=context)
             if llm_result is not None:
                 logger.debug(
                     "Transcript '%s' matched Tier 2 LLM: %s (%s)",
@@ -251,20 +260,41 @@ class IntentRouter:
 
         return None
 
-    def _classify_with_llm(self, text: str) -> IntentResult | None:
-        """Query Gemini using structured output to classify intent and extract entities."""
+    def _classify_with_llm(
+        self,
+        text: str,
+        context: list[dict[str, str]] | None = None,
+    ) -> IntentResult | None:
+        """Query Gemini using structured output to classify intent, disambiguate context, and extract entities."""
         if self.brain_client is None or not self.brain_client.is_configured:
             return None
 
+        context_str = ""
+        if context:
+            formatted_turns = []
+            for turn in context[-4:]:  # last 4 conversational turns
+                role = turn.get("role", "user").capitalize()
+                turn_text = turn.get("text", "").strip()
+                if turn_text:
+                    formatted_turns.append(f"{role}: {turn_text}")
+            if formatted_turns:
+                context_str = "Recent Conversation History:\n" + "\n".join(formatted_turns) + "\n\n"
+
         prompt = (
-            "You are an intent classifier for a desktop voice assistant named Broski.\n"
+            "You are an intelligent intent classifier and context resolver for a desktop voice assistant named Broski.\n"
             "Classify the user's spoken utterance into one of the following:\n"
-            "- 'system_command': user wants to open/launch an app, control windows, or trigger a local action.\n"
+            "- 'system_command': user wants to open/launch an app, control windows, or trigger a local action. "
+            "Use conversation history to resolve pronouns or anaphora (e.g. 'open it', 'launch that', 'bring up that app').\n"
             "- 'dictation': user asks to type or write text into an active window.\n"
+            "- 'disambiguation': the request is ambiguous (e.g. user says 'open that' but context is empty or unclear, "
+            "or multiple choices exist) and broski must ask a brief clarifying question.\n"
             "- 'conversation': questions, general chit-chat, explanations, or requests for information.\n"
             "- 'unknown': unintelligible or unclassifiable audio.\n\n"
             "Whitelisted applications: obsidian, spotify, chrome, vscode, notepad, discord, terminal, riotgames, valorant, steam.\n"
-            "If an application is requested, set 'target' to its whitelisted id and 'action' to 'open_app'.\n\n"
+            "If an application is requested or resolved from context, set 'target' to its whitelisted id and 'action' to 'open_app'.\n"
+            "If 'disambiguation' is required, formulate a concise, friendly clarifying question in 'payload' "
+            "(e.g. 'Which Chrome profile did you want bro, College or Personal?' or 'Did you mean Valorant or Riot Client bro?').\n\n"
+            f"{context_str}"
             f"User Utterance: \"{text}\""
         )
 
@@ -285,6 +315,20 @@ class IntentRouter:
             data = json.loads(raw_text)
 
             intent_str = str(data.get("intent", "conversation")).lower()
+            requires_clarification = bool(data.get("requires_clarification", False))
+
+            if requires_clarification or intent_str == "disambiguation":
+                clarifying_question = data.get("payload") or "Which one did you want bro?"
+                return IntentResult(
+                    intent=IntentType.DISAMBIGUATION,
+                    action="ask_clarification",
+                    target=None,
+                    confidence=0.95,
+                    payload=clarifying_question,
+                    raw_query=text,
+                    source="llm",
+                )
+
             intent_map = {
                 "system_command": IntentType.SYSTEM_COMMAND,
                 "open_application": IntentType.SYSTEM_COMMAND,
