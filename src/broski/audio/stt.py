@@ -107,7 +107,7 @@ class WhisperTranscriber:
 
         default_prompt = (
             "Broski, a Windows AI desktop voice assistant. Commands: open Obsidian, launch Spotify, "
-            "Discord, Chrome, what time is it, tell me a joke, summarize notes, write code."
+            "open Riot Games, launch Valorant, Steam, Discord, Chrome, what time is it, tell me a joke, summarize notes, write code."
         )
 
         # Silero VAD has already segmented the speech, so vad_filter can remain False

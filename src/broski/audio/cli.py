@@ -23,7 +23,12 @@ from broski.audio.player import (
 )
 from broski.audio.tts import PiperSynthesizer
 from broski.brain.client import GeminiBrainClient
+from broski.brain.prompts import clean_for_speech
+from broski.brain.router import IntentRouter, IntentType
 from broski.config import get_settings
+from broski.memory.store import MemoryStore
+from broski.system.apps import AppLauncher
+from broski.system.injector import ActiveWindowInjector
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
@@ -91,39 +96,34 @@ def auto_select_device(requested_idx: int | None = None) -> tuple[int, str]:
                 return dev["index"], dev["name"]
         return requested_idx, f"Device {requested_idx}"
 
-    # 2. Priority 1: Direct Windows Bluetooth Hands-Free driver for OnePlus / Nord / Buds
+    # 2. Priority 1: Connected active Bluetooth headset (excluding raw WDM-KS)
     for dev in devices:
-        name_lower = dev["name"].lower()
-        if any(k in name_lower for k in ("oneplus", "nord", "buds")) and (
-            "bthhfenum" in name_lower or dev.get("hostapi") == 3
-        ):
-            print(
-                f"\n[🎧 Headset Detected] Automatically selecting direct Bluetooth driver: Device [{dev['index']}] (OnePlus Nord Buds 3)"
-            )
-            return dev["index"], "OnePlus Nord Buds 3 (Direct Bluetooth Stream)"
+        if dev.get("is_headset") and not dev.get("is_wdm_ks"):
+            try:
+                s = sd.InputStream(
+                    device=dev["index"],
+                    channels=1,
+                    samplerate=int(dev.get("default_samplerate", 16000)),
+                    dtype="int16",
+                )
+                s.start()
+                s.stop()
+                s.close()
+                print(
+                    f"\n[🎧 Headset Detected] Automatically selecting: Device [{dev['index']}] ({dev['name']})"
+                )
+                return dev["index"], dev["name"]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Candidate headset device [%d] test open failed: %s", dev["index"], exc)
 
-    # 3. Priority 2: Direct Bluetooth driver for other headsets
-    for dev in devices:
-        name_lower = dev["name"].lower()
-        if "bthhfenum" in name_lower or (
-            dev.get("hostapi") == 3 and any(k in name_lower for k in ("headset", "airpods"))
-        ):
-            print(
-                f"\n[🎧 Headset Detected] Automatically selecting direct Bluetooth driver: Device [{dev['index']}] ({dev['name'][:40]})"
-            )
-            return dev["index"], dev["name"]
+    # 3. Priority 2: System default input device (non-WDM-KS)
+    default_dev = next((d for d in devices if d.get("is_default") and not d.get("is_wdm_ks")), None)
+    if default_dev is not None:
+        return default_dev["index"], default_dev["name"]
 
-    # 3. Priority 2: Any detected headset
-    for dev in devices:
-        if dev.get("is_headset"):
-            print(
-                f"\n[🎧 Headset Detected] Automatically selecting: Device [{dev['index']}] ({dev['name']})"
-            )
-            return dev["index"], dev["name"]
-
-    # 4. Priority 3: Fall back to system default
-    default_dev = next((d for d in devices if d["is_default"]), devices[0])
-    return default_dev["index"], default_dev["name"]
+    # 4. Priority 3: Fall back to first available non-WDM-KS input device
+    first_valid = next((d for d in devices if not d.get("is_wdm_ks")), devices[0])
+    return first_valid["index"], first_valid["name"]
 
 
 def main() -> None:
@@ -268,32 +268,32 @@ def generate_offline_response(transcript: str) -> str:
 
     if any(q in t for q in ("who are you", "what is your name", "what are you")):
         return (
-            "I am Broski, your personal AI voice assistant, "
+            "I am Broski, your personal AI voice assistant and bro, "
             "running privately and locally on your CPU."
         )
 
     if any(q in t for q in ("what time is it", "tell me the time", "current time", "what's the time")):
         now = datetime.datetime.now().strftime("%I:%M %p")
-        return f"The current time is {now}."
+        return f"The current time is {now}, bro."
 
     if any(q in t for q in ("what day is it", "what's the date", "what is today")):
         today = datetime.datetime.now().strftime("%A, %B %d, %Y")
-        return f"Today is {today}."
+        return f"Today is {today}, bro."
 
     if "tell me a joke" in t or "say something funny" in t:
-        return "Why do programmers prefer dark mode? Because light attracts bugs!"
+        return "Why do programmers prefer dark mode bro? Because light attracts bugs!"
 
     if any(q in t for q in ("hello", "hi", "hey")):
-        return "Hey there! How can I help you today?"
+        return "Hey there bro! What's good? How can I help you today?"
 
     if any(q in t for q in ("how are you", "how's it going")):
-        return "I am running smoothly with zero cloud latency. Ready for your command!"
+        return "I am running smoothly with zero cloud latency, feeling sharp bro. Ready for your command!"
 
     if any(q in t for q in ("stop", "exit", "quit", "goodbye")):
-        return "Goodbye! Have a great day."
+        return "Goodbye bro! Have a great day."
 
     # Default echo response demonstrating end-to-end local loop
-    return f"I heard you say: {transcript}. Speech synthesis and barge-in are working perfectly!"
+    return f"I heard you say: {transcript}, bro. Speech synthesis and barge-in are working perfectly!"
 
 
 def talk_main() -> None:
@@ -347,6 +347,12 @@ def talk_main() -> None:
         default="hybrid",
         help="Barge-in interruption strategy: 'hybrid' (default), 'vad', or 'wakeword'",
     )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Wake word confidence threshold (default: 0.30 for normal speaking volume)",
+    )
     args = parser.parse_args()
 
     print("\n" + "=" * 65)
@@ -354,6 +360,9 @@ def talk_main() -> None:
     print("=" * 65)
 
     settings = get_settings()
+
+    if args.threshold is not None:
+        settings.audio.wake_word_threshold = args.threshold
 
     # 1. Detect Input Microphone
     in_idx, in_name = auto_select_device(args.input_device)
@@ -383,7 +392,7 @@ def talk_main() -> None:
     player = AudioPlayer(device_index=out_idx, sample_rate=synth.sample_rate, channels=2)
     print("      ✓ Audio player ready.")
 
-    print("[3/4] Initializing Gemini Cloud Brain reasoning engine...")
+    print("[3/4] Initializing Gemini Cloud Brain reasoning engine & Intent Router...")
     brain_client: GeminiBrainClient | None = None
     try:
         brain_client = GeminiBrainClient()
@@ -394,6 +403,20 @@ def talk_main() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.debug("Failed to initialize Gemini brain client: %s", exc)
         print("      ⚠ Cloud Brain offline; using local responder.")
+
+    app_store = MemoryStore()
+    try:
+        import asyncio
+
+        asyncio.run(app_store.initialize())
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed to initialize memory store: %s", exc)
+
+    app_launcher = AppLauncher(store=app_store)
+    injector = ActiveWindowInjector()
+    intent_router = IntentRouter(app_launcher=app_launcher, brain_client=brain_client)
+    print("      ✓ Intent Router & App Launcher initialized with SQLite catalog.")
+    print("      ✓ Active Window Text Injector ready.")
 
     print("[4/4] Initializing sensory loop (Wake Word + Silero VAD + Whisper)...")
 
@@ -432,23 +455,70 @@ def talk_main() -> None:
         sys.stdout.write(f"\n📝 [Transcribed]: \"{transcript}\"\n")
         sys.stdout.flush()
 
-        # Route through Cloud Brain if available, or fall back to offline responder
-        if brain_client is not None and brain_client.is_configured:
-            try:
-                response = brain_client.chat(transcript)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Cloud brain error: %s. Falling back to local responder.", exc)
-                response = generate_offline_response(transcript)
-        else:
-            response = generate_offline_response(transcript)
+        # If continuous dictation mode is active, inject directly into active window
+        if args.dictation:
+            res = injector.inject_text(transcript, enter_after=False)
+            sys.stdout.write(f"✍️  [Injected]: {res.message}\n\n")
+            sys.stdout.flush()
+            return
 
-        sys.stdout.write(f"🤖 [Broski]: \"{response}\"\n")
+        # 1. Classify intent through Two-Tier Intent Router
+        intent_res = intent_router.route(transcript)
+        sys.stdout.write(
+            f"🧭 [Intent]: {intent_res.intent.value.upper()} "
+            f"(Action: {intent_res.action or 'none'}, Target: {intent_res.target or 'none'}, Source: {intent_res.source})\n"
+        )
+        sys.stdout.flush()
+
+        response: str
+        if intent_res.intent == IntentType.SYSTEM_COMMAND and intent_res.action == "open_app":
+            launch_query = intent_res.payload or intent_res.target
+            if launch_query:
+                launch_res = app_launcher.launch(launch_query)
+                response = launch_res.message
+            else:
+                response = "I heard you bro, but couldn't tell which app to open."
+        elif intent_res.intent == IntentType.SYSTEM_COMMAND and intent_res.action == "register_app_path":
+            if intent_res.target and intent_res.payload:
+                reg_res = app_launcher.register_custom_path(intent_res.target, intent_res.payload)
+                response = reg_res.message
+            else:
+                response = "I couldn't tell which application or file path to lock in, bro."
+        elif intent_res.intent == IntentType.DICTATION:
+            text_to_dictate = intent_res.payload or transcript
+            res = injector.inject_text(text_to_dictate)
+            sys.stdout.write(f"✍️  [Injected]: {res.message}\n")
+            sys.stdout.flush()
+            if res.success:
+                win_target = (
+                    res.window.title
+                    if res.window and res.window.title
+                    else (res.window.process_name if res.window else "active window")
+                )
+                response = f"Typed into {win_target}, got you bro!"
+            else:
+                response = f"Couldn't type that in bro: {res.message}"
+        else:
+            # Route conversational queries through Cloud Brain or local offline responder
+            if brain_client is not None and brain_client.is_configured:
+                try:
+                    response = brain_client.chat(transcript)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Cloud brain error: %s. Falling back to local responder.", exc)
+                    response = generate_offline_response(transcript)
+            else:
+                response = generate_offline_response(transcript)
+
+        # Sanitize speech output to strip markdown formatting before TTS
+        clean_response = clean_for_speech(response)
+
+        sys.stdout.write(f"🤖 [Broski]: \"{clean_response}\"\n")
         sys.stdout.write("🔊 [Speaking]: (Speak or say 'Hey Jarvis' to interrupt mid-speech!)\n\n")
         sys.stdout.flush()
 
         # Set pipeline state to SPEAKING and stream chunks to player
         coordinator._set_state(PipelineState.SPEAKING)
-        for chunk in synth.synthesize_stream(response):
+        for chunk in synth.synthesize_stream(clean_response):
             if coordinator.state != PipelineState.SPEAKING:
                 # Interrupted mid-synthesis!
                 break

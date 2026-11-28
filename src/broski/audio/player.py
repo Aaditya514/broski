@@ -24,23 +24,43 @@ def list_output_devices() -> list[dict[str, Any]]:
     """Return a list of available audio output devices and identify the system default."""
     devices = sd.query_devices()
     default_output_idx = sd.default.device[1]
+    try:
+        hostapis = sd.query_hostapis()
+    except Exception:  # noqa: BLE001
+        hostapis = []
 
     output_devs = []
     for idx, dev in enumerate(devices):
-        if dev["max_output_channels"] > 0:
+        if dev.get("max_output_channels", 0) > 0:
             name_lower = dev["name"].lower()
-            is_headset = any(
-                kw in name_lower for kw in ("oneplus", "nord", "buds", "headset", "airpods", "headphones")
+            api_name = ""
+            if hostapis and 0 <= dev.get("hostapi", -1) < len(hostapis):
+                api_name = hostapis[dev["hostapi"]].get("name", "").lower()
+
+            # Exclude WDM-KS devices: WDM-KS in PortAudio requires kernel streaming and fails in shared mode
+            is_wdm_ks = "wdm-ks" in api_name or "wdm-ks" in name_lower
+            is_motherboard_jack = "realtek" in name_lower or "sst" in name_lower
+
+            # Only mark genuine Bluetooth/USB headsets as is_headset (not unplugged Realtek jacks)
+            is_headset = (
+                any(
+                    kw in name_lower
+                    for kw in ("oneplus", "nord", "buds", "airpods", "galaxy buds")
+                )
+                or ("headset" in name_lower and not is_motherboard_jack)
+                or ("headphones" in name_lower and not is_motherboard_jack)
             ) and not dev["name"].startswith("@")
+
             output_devs.append(
                 {
                     "index": idx,
                     "name": dev["name"],
                     "channels": dev["max_output_channels"],
-                    "default_samplerate": int(dev["default_samplerate"]),
-                    "hostapi": dev["hostapi"],
+                    "default_samplerate": int(dev.get("default_samplerate", 22050)),
+                    "hostapi": dev.get("hostapi", 0),
                     "is_default": idx == default_output_idx,
-                    "is_headset": is_headset,
+                    "is_headset": is_headset and not is_wdm_ks,
+                    "is_wdm_ks": is_wdm_ks,
                 }
             )
     return output_devs
@@ -60,19 +80,23 @@ def find_default_or_headset_output_device(
             if dev["index"] == preferred_index:
                 return dev["index"], dev["name"]
 
-    # Priority 1: Connected headset/headphones that is NOT hands-free driver
+    # Priority 1: Connected headset/headphones that is NOT hands-free or raw WDM-KS
     for dev in devices:
-        if dev.get("is_headset") and not dev["name"].startswith("@"):
+        if dev.get("is_headset") and not dev.get("is_wdm_ks"):
             logger.info("Found output headset: [%d] %s", dev["index"], dev["name"])
             return dev["index"], dev["name"]
 
     # Priority 2: System default output device
     for dev in devices:
-        if dev.get("is_default"):
+        if dev.get("is_default") and not dev.get("is_wdm_ks"):
             logger.info("Found system default output device: [%d] %s", dev["index"], dev["name"])
             return dev["index"], dev["name"]
 
-    # Priority 3: Fall back to first available output device
+    # Priority 3: First available non-WDM-KS output device
+    for dev in devices:
+        if not dev.get("is_wdm_ks"):
+            return dev["index"], dev["name"]
+
     first = devices[0]
     return first["index"], first["name"]
 
@@ -253,6 +277,28 @@ class AudioPlayer:
                     self._blocksize,
                 )
             except Exception as exc:
+                if device is not None:
+                    logger.warning(
+                        "Failed to open AudioPlayer OutputStream on device %s: %s. Retrying with system default output...",
+                        device,
+                        exc,
+                    )
+                    try:
+                        self._device_index = None
+                        self._stream = sd.OutputStream(
+                            device=None,
+                            samplerate=self._sample_rate,
+                            channels=self._channels,
+                            dtype="int16",
+                            blocksize=self._blocksize,
+                            callback=self._audio_callback,
+                        )
+                        self._stream.start()
+                        logger.info("AudioPlayer stream started on system default device.")
+                        return
+                    except Exception as fallback_exc:
+                        logger.error("Failed to open AudioPlayer on fallback default device: %s", fallback_exc)
+                        raise
                 logger.error("Failed to open AudioPlayer OutputStream: %s", exc)
                 raise
 

@@ -297,11 +297,14 @@ class AudioPipelineCoordinator:
                     except (TypeError, ValueError, RuntimeError, OSError) as exc:
                         logger.error("Error during transcription: %s", exc)
                     finally:
-                        # Return to IDLE (or LISTENING if dictation mode)
-                        next_state = (
-                            PipelineState.LISTENING if self._dictation_mode else PipelineState.IDLE
-                        )
-                        self._set_state(next_state)
+                        # If playback is active or queued, transition to SPEAKING
+                        if self.player is not None and self.player.is_playing:
+                            self._set_state(PipelineState.SPEAKING)
+                        else:
+                            next_state = (
+                                PipelineState.LISTENING if self._dictation_mode else PipelineState.IDLE
+                            )
+                            self._set_state(next_state)
                         self.vad.reset()
 
             # ------------------------------------------------------------------
