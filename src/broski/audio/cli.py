@@ -428,6 +428,8 @@ def talk_main() -> None:
     }
     barge_mode = mode_map.get(args.mode, BargeInMode.HYBRID)
 
+    conversation_history: list[dict[str, str]] = []
+
     def on_barge_in() -> None:
         sys.stdout.write(
             "\n\n⚡ [BARGE-IN!]: User voice detected! Speech halted instantly (<10ms).\n"
@@ -452,6 +454,7 @@ def talk_main() -> None:
         sys.stdout.flush()
 
     def on_text(transcript: str) -> None:
+        turn_start = time.perf_counter()
         sys.stdout.write(f"\n📝 [Transcribed]: \"{transcript}\"\n")
         sys.stdout.flush()
 
@@ -462,11 +465,15 @@ def talk_main() -> None:
             sys.stdout.flush()
             return
 
-        # 1. Classify intent through Two-Tier Intent Router
-        intent_res = intent_router.route(transcript)
+        # 1. Classify intent through Two-Tier Intent Router with conversation history
+        t_route_start = time.perf_counter()
+        intent_res = intent_router.route(transcript, context=conversation_history)
+        route_ms = (time.perf_counter() - t_route_start) * 1000.0
+
         sys.stdout.write(
             f"🧭 [Intent]: {intent_res.intent.value.upper()} "
-            f"(Action: {intent_res.action or 'none'}, Target: {intent_res.target or 'none'}, Source: {intent_res.source})\n"
+            f"(Action: {intent_res.action or 'none'}, Target: {intent_res.target or 'none'}, "
+            f"Source: {intent_res.source}) | Router: {route_ms:.1f}ms\n"
         )
         sys.stdout.flush()
 
@@ -498,6 +505,8 @@ def talk_main() -> None:
                 response = f"Typed into {win_target}, got you bro!"
             else:
                 response = f"Couldn't type that in bro: {res.message}"
+        elif intent_res.intent == IntentType.DISAMBIGUATION:
+            response = intent_res.payload or "Which one did you want bro?"
         else:
             # Route conversational queries through Cloud Brain or local offline responder
             if brain_client is not None and brain_client.is_configured:
@@ -509,11 +518,18 @@ def talk_main() -> None:
             else:
                 response = generate_offline_response(transcript)
 
+        # Record turn in rolling conversation history (capped to last 8 turns)
+        conversation_history.append({"role": "user", "text": transcript})
+        conversation_history.append({"role": "assistant", "text": response})
+        if len(conversation_history) > 8:
+            del conversation_history[:-8]
+
         # Sanitize speech output to strip markdown formatting before TTS
         clean_response = clean_for_speech(response)
+        total_turn_ms = (time.perf_counter() - turn_start) * 1000.0
 
         sys.stdout.write(f"🤖 [Broski]: \"{clean_response}\"\n")
-        sys.stdout.write("🔊 [Speaking]: (Speak or say 'Hey Jarvis' to interrupt mid-speech!)\n\n")
+        sys.stdout.write(f"🔊 [Speaking]: (Turn latency: {total_turn_ms:.0f}ms | Say 'Hey Jarvis' to interrupt)\n\n")
         sys.stdout.flush()
 
         # Set pipeline state to SPEAKING and stream chunks to player

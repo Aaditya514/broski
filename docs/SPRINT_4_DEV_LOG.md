@@ -276,8 +276,90 @@ Implement `ActiveWindowInjector` (`src/broski/system/injector.py`) using native 
 
 ---
 
-### 🚀 4. Plan for Day 4 of Sprint 4 (Disambiguation & Full-Duplex Voice Hardening)
-* Implement contextual disambiguation with Gemini for multi-step or ambiguous user queries.
-* Finalize Sprint 4 end-to-end voice benchmark (wake word $\rightarrow$ STT $\rightarrow$ intent router $\rightarrow$ injection / app launch / Gemini response $\rightarrow$ Piper TTS).
-* Review and prepare for Sprint 5 (Obsidian Local REST API & Chrome CDP Browser Automation).
+## 📅 Day 4 of 4: Contextual Intent Disambiguation, Pronoun Resolution, Full-Duplex Hardening & Final Merge
+
+### 🎯 Objective & Completed Milestones
+* **Contextual Pronoun Resolution**: Enable broski to resolve conversational anaphora and pronouns (e.g. *"Can you check my notes in Obsidian?"* $\rightarrow$ *"Open it"*) by injecting conversation history into Tier 2 Gemini routing.
+* **Intent Disambiguation**: Added `IntentType.DISAMBIGUATION` allowing broski to ask clarifying questions when user intent or target is ambiguous.
+* **Pronoun Substring Trap Elimination**: Hardened both `AppLauncher` (`apps.py`) and `ChromeProfileManager` (`browsers.py`) to prevent pronoun stop-words (`"it"`, `"that"`, `"this"`, `"them"`, `"app"`, `"the"`, `"one"`, `"thing"`) from falsely matching substrings in app aliases (`"it"` in `"editor"`, `"it"` in `"kiit"`).
+* **Telemetry & Latency Profiling**: Added millisecond precision latency timers for intent routing and end-to-end turn cycles in `broski-talk`.
+* **Full-Duplex Audio Hardening**: Eliminated Windows WDM-KS device crashes and added auto-fallback to default system audio.
+* **Sprint 4 Quality Gate**: **126 / 126 unit tests passing** (100% green) across all subsystems with 0 linter errors.
+
+---
+
+### 🛠️ 1. Technical Deep-Dive: Implementation Details
+
+1. **Context-Aware Intent Routing (`src/broski/brain/router.py`)**:
+   * Added `IntentType.DISAMBIGUATION = "disambiguation"` to `IntentType` enum.
+   * Extended `_LLMIntentClassification` with `requires_clarification: bool = False`.
+   * Updated `route(transcript: str, context: list[dict[str, str]] | None = None)`.
+   * In `_classify_with_llm()`, conversation context turns are structured and passed into the prompt:
+     ```
+     Recent Conversation Context:
+     - User: Can you check my notes in Obsidian?
+     - Assistant: Obsidian is where all your daily notes and vaults live.
+
+     User Utterance: "Open it"
+     ```
+   * Gemini reliably resolves *"it"* $\rightarrow$ `action="open_app"`, `target="obsidian"`.
+
+2. **The Pronoun Substring Collision Trap & Word-Boundary Fix**:
+   * *Problem*: In Tier 1 fast-path heuristics, a user saying *"Open it"* caused `query="it"`.
+   * In `apps.py`, step 3 did `if normalized in alias or alias in normalized: return app`. Because `"it"` was a substring of `"editor"` (alias of `vscode`), `"it"` was incorrectly launching VS Code!
+   * In `browsers.py`, `"it"` was a substring of `"kiit"` (alias of `Default` Chrome profile), launching Chrome!
+   * *Solution*:
+     * Defined `_STOP_WORDS: ClassVar[set[str]] = {"it", "that", "this", "them", "app", "the", "one", "thing"}` in both classes.
+     * Early-exit if `query in _STOP_WORDS`.
+     * Upgraded substring matching to word-boundary regex:
+       `re.search(rf"\b{re.escape(clean_query)}\b", clean_alias)` requiring exact word boundaries and minimum query length of 3 characters.
+
+3. **Rolling Conversation History & Latency Telemetry (`src/broski/audio/cli.py`)**:
+   * Implemented rolling `conversation_history` queue capped at 8 turns.
+   * Passed context into `intent_router.route(transcript, context=conversation_history)`.
+   * Added live latency diagnostics:
+     * `⏱️ [Intent]: SYSTEM_COMMAND (Action: open_app, Target: obsidian) | Router: 0.1ms`
+     * `⏱️ [Turn latency]: 412ms`
+
+4. **Automated Unit Tests**:
+   * Added `test_router_contextual_pronoun_resolution_mocked`: Validates multi-turn context passing and pronoun resolution.
+   * Added `test_router_disambiguation_clarifying_question_mocked`: Validates disambiguation classification and clarifying questions.
+   * **Total Test Suite**: **126 / 126 tests passed in 12.27s** with 0 ruff errors!
+
+---
+
+### 💡 2. Educational Insights: Under the Hood
+
+#### A. Pronoun Resolution in Hybrid Voice Architectures
+* In traditional voice assistants, intent routers only inspect the single isolated user utterance. When a user says *"Open it"*, an isolated router fails because *"it"* has no referent.
+* In broski's two-tier design:
+  * Tier 1 local regex detects that *"it"* is a pronoun / stop-word and purposefully refrains from guessing.
+  * Tier 2 invokes Gemini with the recent conversation buffer.
+  * Gemini inspects prior turns, resolves the anaphoric pronoun to the most recent referenced entity, and produces structured JSON without hallucinating.
+
+#### B. Substring Matching Hazards in Command Parsing
+* Naive substring containment (`query in alias`) is one of the most common traps in natural language command processing.
+* Short tokens like `"it"`, `"on"`, `"in"`, `"me"`, `"to"` easily occur inside valid application names and aliases (`"editor"`, `"obsidian"`, `"terminal"`, `"onedrive"`).
+* Enforcing stop-word exclusions, exact matches first, and regex word boundaries (`\b`) ensures fast local matching remains deterministic while complex queries fall through to the LLM.
+
+---
+
+### 💻 3. Final Sprint 4 Commands Executed & Outputs
+```powershell
+# 1. Quality gate linting
+.\.venv\Scripts\ruff.exe check .
+# -> All checks passed!
+
+# 2. Complete test suite verification
+.\.venv\Scripts\pytest.exe -v
+# -> 126 passed in 12.27s (100% passing)
+```
+
+---
+
+### 🏆 Sprint 4 Completion Summary
+* **Status**: **COMPLETED & VERIFIED**
+* **Milestone**: Cloud Brain, Intent Routing & Active Window Text Injection
+* **Next Sprint**: **Sprint 5: Security Gated System Tools & Deep Integrations (Obsidian REST API & Playwright Browser Automation)**
+
 

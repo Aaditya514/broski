@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -132,17 +134,20 @@ class ChromeProfileManager:
             self._cached_profiles = []
             return []
 
+    # Stop words and pronouns that must never be treated as profile names
+    _STOP_WORDS: ClassVar[set[str]] = {"it", "that", "this", "them", "app", "the", "one", "thing"}
+
     def find_profile(self, query: str) -> ChromeProfile | None:
         """Find matching Chrome profile based on query keywords or aliases."""
         clean_query = query.strip().lower().replace("-", " ")
-        if not clean_query:
+        if not clean_query or clean_query in self._STOP_WORDS:
             return None
 
         # Clean off common noise words
         for noise in ("open ", "launch ", "start ", " chrome", " profile", " account", "on ", "my "):
             clean_query = clean_query.replace(noise, " ")
         clean_query = clean_query.strip()
-        if not clean_query:
+        if not clean_query or clean_query in self._STOP_WORDS:
             return None
 
         profiles = self.discover_profiles()
@@ -154,11 +159,16 @@ class ChromeProfileManager:
                 if clean_query == clean_alias:
                     return prof
 
-        # 2. Substring match
+        # 2. Substring match (word-boundary safe, avoid false positive short substrings)
         for prof in profiles:
             for alias in prof.aliases:
                 clean_alias = alias.replace("-", " ")
-                if clean_query in clean_alias or clean_alias in clean_query:
+                if clean_query == clean_alias:
+                    return prof
+                if len(clean_query) >= 3 and (
+                    re.search(rf"\b{re.escape(clean_query)}\b", clean_alias)
+                    or re.search(rf"\b{re.escape(clean_alias)}\b", clean_query)
+                ):
                     return prof
 
         return None
