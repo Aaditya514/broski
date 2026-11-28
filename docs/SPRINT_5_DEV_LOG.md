@@ -23,8 +23,8 @@ In **Sprint 5**, we integrate deep, safe desktop tooling:
 
 | Day | Focus Areas | Key Deliverables | Status |
 | :---: | :--- | :--- | :---: |
-| **Day 1** | **3-Tier Security Tooling & Obsidian Client** | `RiskLevel`, `BaseTool`, `ToolRegistry`, `SecurityConfirmationManager`, `ObsidianClient`, Obsidian tools | **IN PROGRESS** |
-| **Day 2** | **Developer Git Assistant** | `GitInspector`, safe repository discovery, read-only status/diff tools, security gating | **UPCOMING** |
+| **Day 1** | **3-Tier Security Tooling & Obsidian Client** | `RiskLevel`, `BaseTool`, `ToolRegistry`, `SecurityConfirmationManager`, `ObsidianClient`, Obsidian tools | **COMPLETED** |
+| **Day 2** | **Developer Git Assistant** | `GitInspector`, safe repository discovery, read-only status/diff tools, security gating | **COMPLETED** |
 | **Day 3** | **Chrome Browser Automation** | Chrome navigation, active webpage text extraction, search and summarization | **UPCOMING** |
 | **Day 4** | **Gemini Function Calling & Voice Loop Integration** | Wiring `ToolRegistry` to Gemini API function calling, voice CLI testing, full quality gate & merge | **UPCOMING** |
 
@@ -123,12 +123,64 @@ In **Sprint 5**, we integrate deep, safe desktop tooling:
 
 ---
 
-### 🚀 4. Plan for Day 2 of Sprint 5 (Developer Git Assistant)
-* Implement `GitInspector` in `src/broski/tools/git.py`:
-  * Read-only repository status (`git status -s`).
-  * Diff summaries (`git diff --stat`, `git diff --cached`).
-  * Recent commit log (`git log -n 5 --oneline`).
-  * Active repository detection (based on active foreground window or user working directory).
-* Implement mutating git tools (`GitCommitTool`, `GitPushTool`) classified as `RiskLevel.CRITICAL` and guarded by `SecurityConfirmationManager`.
-* Add automated unit tests in `tests/unit/test_git_tools.py`.
+## 📅 Day 2 of 4: Developer Git Assistant & Security-Gated Mutating Operations
+
+### 🎯 Objective & Milestones
+* **Git Subprocess Sandboxing (`src/broski/tools/git.py`)**:
+  * Build `GitInspector` with zero `shell=True` subprocess calls (`asyncio.create_subprocess_exec("git", ...)`).
+  * Safe recursive repository discovery climbing parent directories to locate `.git`.
+  * Structured repository status parsing (`git status --porcelain=v1 -b`): branch, ahead/behind counters, staged, modified, and untracked file collections.
+  * Formatted diff statistics (`git diff --stat`, `--cached`).
+  * Commit history parsing (`git log --format=%h|%s|%an|%cr`).
+  * Current branch identification (`git branch --show-current`).
+* **Typed Git Tools & 3-Tier Risk Gating**:
+  * `GitStatusTool` (`RiskLevel.SAFE`): Reports active branch and changed/staged files.
+  * `GitDiffTool` (`RiskLevel.SAFE`): Reports diff stats.
+  * `GitLogTool` (`RiskLevel.SAFE`): Summarizes recent commit subjects, authors, and timestamps.
+  * `GitBranchTool` (`RiskLevel.SAFE`): Reports active branch.
+  * `GitCommitTool` (`RiskLevel.CRITICAL`): Commits staged changes; strictly blocked unless confirmed by user.
+  * `GitPushTool` (`RiskLevel.CRITICAL`): Pushes commits to remote; strictly blocked unless confirmed by user.
+* **Testing & Quality Assurance**:
+  * Added 15 comprehensive unit tests in `tests/unit/test_git_tools.py` covering clean/dirty repos, non-repo error handling, diff formatting, commit logs, and `ToolRegistry` confirmation gating.
+  * **165 / 165 unit tests passing** (100% green) across all subsystems with 0 linter warnings.
+
+---
+
+### 🛠️ 1. Technical Deep-Dive: Implementation Details
+
+1. **Subprocess Isolation & Zero-Shell Security**:
+   * Direct execution of git commands via `asyncio.create_subprocess_exec("git", *args, cwd=str(target))` prevents command injection vulnerabilities. Arguments are passed as individual array tokens rather than parsed by `cmd.exe` or `powershell.exe`.
+   * Standard error and output streams are captured asynchronously and decoded safely with fallback error replacement.
+
+2. **Repository Root Discovery Algorithm**:
+   * Developers frequently invoke voice commands while focused on a deeply nested source file (e.g. `src/broski/tools/git.py`).
+   * `discover_repo_path()` checks the directory, then recursively traverses upward (`curr.parent`) until finding `.git`, guaranteeing correct repository root resolution without manual directory specification.
+
+3. **Critical Mutation Gating in Action**:
+   * When an unconfirmed `GitCommitTool` or `GitPushTool` execution is dispatched through `ToolRegistry.execute()`:
+     * Execution halts immediately before invoking `git`.
+     * `SecurityConfirmationManager` registers a pending confirmation with reason and arguments.
+     * Broski responds conversationally: *"Yo bro, 'git_commit' is a critical action. Say 'confirm' or approve request [abc1234] to run it."*
+     * Once confirmed (`manager.confirm("abc1234", approved=True)`), subsequent execution succeeds.
+
+---
+
+### 💻 2. Commands Executed & Outputs
+```powershell
+# 1. Quality gate linting
+.\.venv\Scripts\ruff.exe check --fix .
+# -> Found 1 error (1 fixed, 0 remaining). All checks passed!
+
+# 2. Test suite verification
+.\.venv\Scripts\pytest.exe -v
+# -> 165 passed in 5.90s (100% green)
+```
+
+---
+
+### 🚀 3. Plan for Day 3 of Sprint 5 (Chrome Browser Automation)
+* Implement Chrome browser navigation, search, and content extraction tools in `src/broski/tools/browser.py`.
+* Provide web page reading and article text summarization for hands-free browsing.
+* Add automated unit tests in `tests/unit/test_browser_tools.py`.
+
 
